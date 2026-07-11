@@ -1,0 +1,11 @@
+# Codex autonomous profile.
+# Activate per-launch:  codex --profile autonomous
+# Make it the default:  re-run install.sh --codex-default-autonomous  (adds `profile = "autonomous"`)
+#
+# Codex has NO per-command deny-list; safety here = kernel sandbox + approval + the AGENTS.md rules.
+# `sandbox_mode = workspace-write` confines writes to the workspace and disables network by default,
+# which also blocks git push/pull/fetch. To let package installs reach the network, add a TOP-LEVEL
+# (outside this block)  [sandbox_workspace_write]  with  network_access = true.
+[profiles.autonomous]
+approval_policy = "never"
+sandbox_mode    = "workspace-write"

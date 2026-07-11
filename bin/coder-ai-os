@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# coder-ai-os — one CLI over the config kernel (config/*.yaml), the compiler
+# (bin/compile), and the installer (install.sh). Manual, AI, and file intake all
+# converge on the SAME canonical overlay (config/local.yaml) → deterministic output.
+#
+#   coder-ai-os install                   configure your agents globally (once per machine)
+#   coder-ai-os setup [dir]               set up a project (default: current dir) — rules,
+#                                         commands, skills, standards, memory
+#   coder-ai-os init                      personalize your profile (wizard, or --ai claude|codex)
+#   coder-ai-os doctor                    sizes + Codex 32KiB budget + drift + health
+#   coder-ai-os verify                    what each agent CLI actually loads
+#   coder-ai-os compile / diff / profile show
+set -euo pipefail
+# Resolve through symlinks: the CLI is invoked via ~/.local/bin/coder-ai-os (a symlink
+# into the repo), so BASH_SOURCE is the link, not the real file. Walk links to find the
+# actual bin/ dir, then REPO_DIR is its parent. (Portable — no readlink -f dependency.)
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _dir="$(cd -P "$(dirname "$SELF")" >/dev/null 2>&1 && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) : ;; *) SELF="$_dir/$SELF" ;; esac
+done
+REPO_DIR="$(cd -P "$(dirname "$SELF")/.." >/dev/null 2>&1 && pwd)"
+LOCAL="$REPO_DIR/config/local.yaml"
+
+die(){ echo "coder-ai-os: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "'$1' not found on PATH${2:+ — $2}"; }
+
+AI_PROMPT='Set up my coder-ai-os profile: read intake/PROFILE_INTERVIEW.md in this repo and follow it exactly — interview me, show a DRAFT profile, wait for my approval, then compile and install. Configure preferences only; never change safety, permissions, or architecture.'
+
+cmd_init(){
+  local mode="${1:-}"; shift || true
+  case "$mode" in
+    --interactive|--manual) exec "$REPO_DIR/bin/setup" "$@" ;;
+    --ai)
+      local tool="${1:-}"; [ -n "$tool" ] || die "init --ai needs a tool: claude | codex"
+      need "$tool" "install its CLI first"
+      cd "$REPO_DIR" && exec "$tool" "$AI_PROMPT" ;;
+    --from|--config)
+      local f="${1:-}"; [ -n "$f" ] || die "init $mode needs a profile file"
+      [ -f "$f" ] || die "no such file: $f"
+      cp "$f" "$LOCAL"; echo "applied $f -> config/local.yaml"
+      need python3; python3 "$REPO_DIR/bin/compile" --validate || die "profile failed validation"
+      exec "$REPO_DIR/install.sh" ;;
+    *) die "init needs a mode: --interactive | --ai <tool> | --from <file>" ;;
+  esac
+}
+
+cmd_profile(){
+  case "${1:-show}" in
+    show)
+      if [ -f "$LOCAL" ]; then echo "# active overlay: config/local.yaml"; sed 's/^/  /' "$LOCAL"
+      else echo "no config/local.yaml — using committed defaults (config/*.yaml)."; fi
+      echo; echo "# effective (compiled) sizes:"; need python3; python3 "$REPO_DIR/bin/compile" --check ;;
+    edit) exec "$REPO_DIR/bin/setup" ;;
+    *) die "profile: show | edit" ;;
+  esac
+}
+
+cmd_diff(){
+  need python3; python3 "$REPO_DIR/bin/compile" >/dev/null
+  if command -v git >/dev/null 2>&1 && git -C "$REPO_DIR" rev-parse >/dev/null 2>&1; then
+    git -C "$REPO_DIR" --no-pager diff -- config build || true
+    git -C "$REPO_DIR" status --short -- config build || true
+  else
+    python3 "$REPO_DIR/bin/compile" --check
+  fi
+}
+
+cmd_verify(){
+  echo "coder-ai-os verify — what each agent CLI actually loads"
+  local pair tool f
+  for pair in "Claude:$HOME/.claude/CLAUDE.md" "Codex:$HOME/.codex/AGENTS.md" "Gemini:$HOME/.gemini/GEMINI.md"; do
+    tool="${pair%%:*}"; f="${pair#*:}"
+    if [ -f "$f" ] && grep -q 'coder-ai-os:managed' "$f"; then echo "  $tool  ● block present"
+    else echo "  $tool  ○ not installed  ($f)"; fi
+  done
+  echo "  commands  claude=$(ls "$HOME/.claude/commands" 2>/dev/null | wc -l | tr -d ' ')  codex=$(ls "$HOME/.codex/prompts" 2>/dev/null | wc -l | tr -d ' ')  gemini=$(ls "$HOME/.gemini/commands" 2>/dev/null | wc -l | tr -d ' ')"
+  echo "  skills    claude=$(ls "$HOME/.claude/skills" 2>/dev/null | wc -l | tr -d ' ')  codex=$(ls "$HOME/.codex/skills" 2>/dev/null | wc -l | tr -d ' ')"
+  if command -v codex >/dev/null 2>&1; then
+    if codex --print-instructions 2>/dev/null | grep -q 'coder-ai-os:managed'; then
+      echo "  codex --print-instructions  ● Codex confirms it loads our block"
+    else echo "  codex --print-instructions  (no match — run inside a repo, or Codex < Apr-2026)"; fi
+  fi
+  echo "  --- this repo (project-scoped artifacts from --project): $PWD ---"
+  local p
+  for p in .cursor/rules .cursor/commands .github/copilot-instructions.md \
+           .claude/commands .claude/skills .ai/standards.md .ai/memory/INDEX.md; do
+    if [ -e "$PWD/$p" ]; then echo "    ● $p"; else echo "    ○ $p"; fi
+  done
+  echo "  (Claude/Codex/Gemini read your PERSONAL block from ~ in every repo — see the top"
+  echo "   section; the project files above are the repo-scoped extras from 'install.sh --project'.)"
+}
+
+cmd_setup(){  # set up the current (or given) project in place
+  local dir="." rest=()
+  for a in "$@"; do case "$a" in --*) rest+=("$a") ;; *) dir="$a" ;; esac; done
+  local abs; abs="$(cd "$dir" 2>/dev/null && pwd)" || die "no such directory: $dir"
+  exec "$REPO_DIR/install.sh" --project "$abs" --yes ${rest[@]+"${rest[@]}"}
+}
+
+case "${1:-help}" in
+  install)     shift; exec "$REPO_DIR/install.sh" --yes "$@" ;;
+  setup)       shift; cmd_setup "$@" ;;
+  init)        shift; cmd_init "$@" ;;
+  compile)     need python3; exec python3 "$REPO_DIR/bin/compile" ;;
+  doctor)      need python3; exec python3 "$REPO_DIR/bin/compile" --doctor ;;
+  verify)      cmd_verify ;;
+  diff)        cmd_diff ;;
+  profile)     shift; cmd_profile "$@" ;;
+  help|-h|--help|"") sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$1' (try: coder-ai-os help)" ;;
+esac
