@@ -1,0 +1,623 @@
+#!/usr/bin/env python3
+"""Agent Compiler — one source of truth (config/*.yaml) -> per-tool instruction files.
+
+AGENTS.md is the canonical output (emerging cross-tool standard); CLAUDE.md and
+GEMINI.md are adapters over the same compiled body with a tool-specific footer.
+Guardrails (config/safety.yaml `never`) compile to the TOP of every file, because
+negative constraints improve agent reliability more than positive checklists.
+
+Zero hard dependency: uses PyYAML when importable, else a vendored stdlib-only parser
+for the small YAML subset our config uses (2-space maps, `- ` scalar lists, quoted
+scalars, booleans/ints). Budgets in config/tokens.yaml are enforced by `--check`.
+
+Usage:
+  bin/compile            compile config/ -> build/{AGENTS,CLAUDE,GEMINI}.md
+  bin/compile --check    compile to memory, report sizes/budget/drift, exit 1 if over
+"""
+import sys, os, json
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_DIR = os.path.join(ROOT, "config")
+BUILD_DIR = os.path.join(ROOT, "build")
+# Stamp on every generated command/skill/agent file so install never overwrites a user's
+# own same-named file (only files carrying this marker are treated as ours and updated).
+GEN_MD = "<!-- coder-ai-os:generated -->"
+
+# (output filename, tool key, scope). "global" files are injected into ~ by install.sh;
+# "project" files are repo-scoped and written into a target repo by install.sh --project.
+TOOLS = [
+    ("AGENTS.md", "codex", "global"),   # canonical
+    ("CLAUDE.md", "claude", "global"),
+    ("GEMINI.md", "gemini", "global"),
+    ("cursor.mdc", "cursor", "project"),
+    ("copilot-instructions.md", "copilot", "project"),
+]
+
+
+# ---- YAML loading: PyYAML if present, else a vendored subset parser ----------
+def _coerce(s):
+    s = s.strip()
+    if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+        return s[1:-1]
+    if len(s) >= 2 and s[0] == "[" and s[-1] == "]":  # inline flow list: [a, b]
+        inner = s[1:-1].strip()
+        return [_coerce(x) for x in inner.split(",")] if inner else []
+    low = s.lower()
+    if low in ("true", "yes"):
+        return True
+    if low in ("false", "no"):
+        return False
+    if low in ("null", "~", ""):
+        return None
+    for cast in (int, float):
+        try:
+            return cast(s)
+        except ValueError:
+            pass
+    return s
+
+
+def _next_content_indent(lines, i):
+    while i < len(lines):
+        st = lines[i].strip()
+        if st and not st.startswith("#"):
+            return len(lines[i]) - len(lines[i].lstrip(" "))
+        i += 1
+    return -1
+
+
+def _parse(lines, i, indent):
+    node = None
+    while i < len(lines):
+        raw = lines[i]
+        st = raw.strip()
+        if not st or st.startswith("#"):
+            i += 1
+            continue
+        cur = len(raw) - len(raw.lstrip(" "))
+        if cur < indent:
+            break
+        if cur > indent:  # defensive; well-formed config won't hit this
+            break
+        if st.startswith("- "):
+            if node is None:
+                node = []
+            node.append(_coerce(st[2:]))
+            i += 1
+        else:
+            if node is None:
+                node = {}
+            if ": " in st:
+                key, val = st.split(": ", 1)
+                node[key.strip()] = _coerce(val)
+                i += 1
+            elif st.endswith(":"):
+                key = st[:-1].strip()
+                i += 1
+                child_indent = _next_content_indent(lines, i)
+                if child_indent > indent:
+                    child, i = _parse(lines, i, child_indent)
+                    node[key] = child if child is not None else {}
+                else:
+                    node[key] = {}
+            else:
+                i += 1  # skip malformed line
+    return node, i
+
+
+def load_yaml(path):
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    try:
+        import yaml  # PyYAML, if available
+        return yaml.safe_load(text) or {}
+    except ImportError:
+        node, _ = _parse(text.splitlines(), 0, 0)
+        return node or {}
+
+
+def deep_merge(base, over):
+    """Recursively merge `over` into `base` (dicts). Scalars/lists in `over` win."""
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+STEMS = ("identity", "safety", "workflow", "tokens", "user",
+         "context", "skills", "commands", "subagents", "hooks", "mcp", "memory")
+
+
+def _apply_overlay(cfg, path):
+    """Deep-merge an overlay file's stems over cfg; safety is never overridable."""
+    if not path or not os.path.exists(path):
+        return
+    over_all = load_yaml(path) or {}
+    over_all.pop("safety", None)
+    for stem, over in over_all.items():
+        if stem in cfg and isinstance(cfg[stem], dict) and isinstance(over, dict):
+            deep_merge(cfg[stem], over)
+
+
+def load_config(repo_overlay=None):
+    # Precedence (low → high): defaults < language preset < machine overlay < repo overlay.
+    cfg = {}
+    for stem in STEMS:
+        p = os.path.join(CONFIG_DIR, stem + ".yaml")
+        cfg[stem] = load_yaml(p) if os.path.exists(p) else {}
+
+    local_path = os.path.join(CONFIG_DIR, "local.yaml")
+    local = load_yaml(local_path) or {} if os.path.exists(local_path) else {}
+    local.pop("safety", None)  # guardrails are non-negotiable
+
+    # Repo overlay (highest precedence) — <repo>/.coder-ai/project.yaml, when compiling a repo.
+    repo = {}
+    if repo_overlay and os.path.exists(repo_overlay):
+        repo = load_yaml(repo_overlay) or {}
+        repo.pop("safety", None)
+
+    # Language presets: for every language declared anywhere (repo wins, then local, then base).
+    langs = (repo.get("user", {}) or {}).get("languages") \
+        or (local.get("user", {}) or {}).get("languages") \
+        or (cfg["user"].get("languages") or [])
+    for lang in langs if isinstance(langs, list) else []:
+        _apply_overlay(cfg, os.path.join(CONFIG_DIR, "profiles", str(lang).lower() + ".yaml"))
+
+    # Overlays low → high: machine (local.yaml), then repo (.coder-ai/project.yaml).
+    for src in (local, repo):
+        for stem, over in src.items():
+            if stem in cfg and isinstance(cfg[stem], dict) and isinstance(over, dict):
+                deep_merge(cfg[stem], over)
+    return cfg
+
+
+# ---- Rendering ---------------------------------------------------------------
+def footer(tool, cfg):
+    if tool == "claude":
+        return ("Personal overrides: `~/.claude/CLAUDE.local.md` (seeded from "
+                "`config/user.yaml`) wins over this block. Reviewer roles: `/code-review`.")
+    if tool == "codex":
+        return ("Budget: keep this global `AGENTS.md` <3 KB — Codex truncates all "
+                "concatenated AGENTS.md at 32 KiB. Autonomy: `codex --profile autonomous`.")
+    if tool == "gemini":
+        return ("Autonomy is a UI toggle: Settings -> Terminal Execution Policy. "
+                "Personal overrides live in your user GEMINI.md.")
+    if tool == "cursor":
+        return ("Cursor rule (repo-scoped). Generated by coder-ai-os — do not hand-edit; "
+                "edit config/*.yaml and recompile.")
+    if tool == "copilot":
+        return ("GitHub Copilot instructions (repo-scoped). Generated by coder-ai-os — "
+                "do not hand-edit; edit config/*.yaml and recompile.")
+    return ""
+
+
+def render(cfg, tool):
+    ident, saf = cfg["identity"], cfg["safety"]
+    wf, tok, usr = cfg["workflow"], cfg["tokens"], cfg["user"]
+    orient = wf.get("orient", {})
+    clarify = wf.get("clarify", {})
+    L = []
+    L.append("**Personal agent defaults — GENERATED by `coder-ai-os` from "
+             "`config/*.yaml`. Edit config + run `bin/compile`; do not hand-edit this "
+             "block. A project's own AGENTS.md / CLAUDE.md still wins.**")
+    L.append("")
+    # 1. Guardrails first (negative constraints)
+    L.append("## Never — guardrails (hard constraints, always hold)")
+    for n in saf.get("never", []):
+        L.append("- " + n)
+    L.append("")
+    # 2. Autonomy
+    L.append("## Autonomy — act, don't just explain")
+    L.append(ident.get("persona", "") + " Understand intent -> trace current code -> "
+             "smallest complete change -> run lint/typecheck/tests -> report the diff. "
+             "Never claim success without an observed validation run. A pure question = "
+             "explain first.")
+    L.append("")
+    # 2b. Optional profile line — rendered ONLY when languages/style are set, so it
+    #     costs zero tokens by default. Experience is included only when shown.
+    langs = usr.get("languages") or []
+    if isinstance(langs, str):  # defensive: a scalar slipped through
+        langs = [langs] if langs else []
+    coding = usr.get("coding") or {}
+    coding_bits = [str(v) for v in coding.values() if v] if isinstance(coding, dict) else []
+    if langs or usr.get("code_style") or coding_bits:
+        prof = ["experience: " + str(usr.get("experience", "?"))]
+        if langs:
+            prof.append("langs: " + ", ".join(str(x) for x in langs))
+        if usr.get("code_style"):
+            prof.append("style: " + str(usr.get("code_style")))
+        if coding_bits:
+            prof.append("coding: " + ", ".join(coding_bits))
+        L.append("## Profile")
+        L.append(" · ".join(prof))
+        L.append("")
+    # 3. Clarify by exception
+    if clarify.get("mode") == "by-exception":
+        L.append("## Clarify by exception")
+        L.append("Triage first (goal · problem · constraints · area · done-criteria). "
+                 "Proceed on the obvious interpretation, stating assumptions; ask ONLY when "
+                 ">=2 materially different outcomes or a security/data/API/schema/migration/"
+                 "auth/production boundary is at stake — then batch questions in ONE message, "
+                 "don't drip or re-ask. Never ask what code inspection can answer.")
+        L.append("")
+    # 4. Orient
+    if orient.get("strategy") == "query-first":
+        L.append("## Orient before editing — token discipline")
+        L.append("Query, don't full-scan. Escalate by need: " + orient.get("levels", "") +
+                 ". Prefer the index (" + orient.get("index", "") + ") or `" +
+                 orient.get("snapshot", "") + "`; read only returned files + related "
+                 "config/tests. Regenerate the snapshot when structure changes: "
+                 "`scripts/update-ai-context.sh`.")
+        L.append("")
+    # 4c. Harness — compact pointers only (mechanisms live in generated artifacts, not here)
+    ctx = cfg.get("context", {}) or {}
+    skl = cfg.get("skills", {}) or {}
+    mem = cfg.get("memory", {}) or {}
+    enabled = skl.get("enabled") or []
+    if enabled or ctx or mem:
+        L.append("## Harness — load on demand")
+        parts = []
+        if enabled:
+            parts.append("Skills trigger one at a time (" + " · ".join(str(s) for s in enabled) +
+                         "); full text in `skills/<id>/SKILL.md`.")
+        if ctx:
+            parts.append("Context: query-first, start <=" + str(ctx.get("initial_file_limit", 5)) +
+                         " files, no full scan.")
+        loc = str(mem.get("location") or ".ai/memory/")
+        if mem.get("location"):
+            parts.append("Memory: `" + loc + "INDEX.md` first, resume from `CURRENT.md`.")
+        parts.append("Match `.ai/standards.md` before coding.")
+        L.append(" ".join(parts))
+        L.append("")
+
+    # 5. Development protocol
+    if wf.get("planning"):
+        bits = []
+        if wf.get("atomic_tasks"):
+            bits.append("atomic tasks — one at a time, validate each")
+        if wf.get("self_review"):
+            bits.append("self-review")
+        if wf.get("architecture_review"):
+            bits.append("architecture review")
+        L.append("## Development protocol")
+        L.append("Non-trivial work -> follow `" + str(wf.get("protocol_file")) +
+                 "` if present: classify the tier, no code until the repo is understood, " +
+                 ", ".join(bits) + ", separate review-only roles.")
+        L.append("")
+    # 6. Reply format — pick the skeleton for the chosen format (falls back to a flat
+    #    reply_skeleton for backward compatibility). Format is behavioral: `minimal`
+    #    genuinely shrinks replies.
+    fmt = str(tok.get("reply_format", "flow-graph"))
+    skeletons = tok.get("reply_skeletons", {}) or {}
+    skeleton = skeletons.get(fmt) or tok.get("reply_skeleton") or []
+    L.append("## Reply format — " + fmt + ", <=" + str(tok.get("max_tokens")) +
+             " tokens (verbosity: " + str(usr.get("verbosity")) + ")")
+    L.append("```")
+    for line in skeleton:
+        L.append(line)
+    L.append("```")
+    if tok.get("final_review"):
+        L.append("End-of-task: full goal review in this format, uncapped (mid-task stays capped).")
+    if usr.get("language") == "match-user":
+        L.append("Reply in the language of the latest message.")
+    L.append("")
+    L.append(footer(tool, cfg))
+    body = "\n".join(L).rstrip() + "\n"
+    if tool == "cursor":  # .mdc requires YAML frontmatter as the very first thing
+        body = ("---\ndescription: coder-ai-os engineering defaults (generated)\n"
+                "alwaysApply: true\n---\n\n") + body
+    return body
+
+
+# ---- Commands ----------------------------------------------------------------
+def compile_all(cfg):
+    return {fname: render(cfg, tool) for fname, tool, _scope in TOOLS}
+
+
+def _write(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _skill_body(cfg, sid):
+    """Skill SKILL.md content with name+description frontmatter (required for discovery in
+    both Claude and Codex). Description comes from the skill's trigger — the only part loaded
+    at startup, so the agent uses it to decide whether to invoke the skill."""
+    src = os.path.join(ROOT, "skills", str(sid), "SKILL.md")
+    if not os.path.exists(src):
+        return None
+    with open(src, encoding="utf-8") as f:
+        body = f.read()
+    if body.lstrip().startswith("---"):  # already has frontmatter
+        return body
+    meta = ((cfg.get("skills", {}) or {}).get("skills", {}) or {}).get(sid, {}) or {}
+    desc = meta.get("trigger") or ("use when working on " + str(sid))
+    return "---\nname: %s\ndescription: Use when — %s\n---\n%s\n\n%s" % (sid, desc, GEN_MD, body)
+
+
+def emit_skills(cfg):
+    """Emit each enabled skill into Claude and Codex skill trees (same SKILL.md format).
+    install.sh drops these into ~/.claude/skills and ~/.codex/skills so they load in any repo."""
+    n = 0
+    for sid in (cfg.get("skills", {}) or {}).get("enabled", []) or []:
+        content = _skill_body(cfg, sid)
+        if content is None:
+            continue
+        for tool in ("claude", "codex"):
+            _write(os.path.join(BUILD_DIR, "skills", tool, str(sid), "SKILL.md"), content)
+        n += 1
+    return n
+
+
+def emit_project(cfg):
+    """Generate repo-scoped harness artifacts into build/project/ for install.sh --project."""
+    base = os.path.join(BUILD_DIR, "project", ".claude")
+    n = {"commands": 0, "agents": 0, "skills": 0, "hooks": 0, "mcp": 0}
+    for name, c in ((cfg.get("commands", {}) or {}).get("commands", {}) or {}).items():
+        _write(os.path.join(base, "commands", name + ".md"),
+               "---\ndescription: %s\n---\n%s\n\n%s\n" % (c.get("description", ""), GEN_MD, c.get("body", "")))
+        n["commands"] += 1
+    for name, a in ((cfg.get("subagents", {}) or {}).get("subagents", {}) or {}).items():
+        _write(os.path.join(base, "agents", name + ".md"),
+               "---\nname: %s\ndescription: %s\n---\n%s\n\n%s\n" % (name, a.get("description", ""), GEN_MD, a.get("prompt", "")))
+        n["agents"] += 1
+    for sid in (cfg.get("skills", {}) or {}).get("enabled", []) or []:
+        content = _skill_body(cfg, sid)
+        if content is not None:
+            _write(os.path.join(base, "skills", str(sid), "SKILL.md"), content)
+            n["skills"] += 1
+    hks = (cfg.get("hooks", {}) or {}).get("hooks", {}) or {}
+    if hks:
+        lines = [GEN_MD, "# Suggested agent hooks — fill in real commands; not auto-run.", ""]
+        for hid, h in hks.items():
+            lines.append("- %s [%s]: %s" % (hid, h.get("event", ""), h.get("action", "")))
+        _write(os.path.join(base, "HOOKS.md"), "\n".join(lines) + "\n")
+        n["hooks"] = len(hks)
+        # Real, SAFE executable hook: a Stop prompt hook (no command execution) that enforces
+        # "validate before done". Written outside the .claude bundle so --project installs it
+        # without clobbering an existing settings.json.
+        stop = [h for h in hks.values() if "stop" in str(h.get("event", "")).lower()]
+        if stop:
+            prompts = [{"type": "prompt",
+                        "prompt": str(h.get("action", "")) + " — confirm lint/typecheck/tests "
+                        "ran for changed code and report the observed result; if validation is "
+                        "pending and code changed, keep working."} for h in stop]
+            settings = {"hooks": {"Stop": [{"hooks": prompts}]}}
+            _write(os.path.join(BUILD_DIR, "project", "settings.hooks.json"),
+                   json.dumps(settings, indent=2) + "\n")
+    servers = (cfg.get("mcp", {}) or {}).get("servers", {}) or {}
+    if servers:
+        lines = ["# MCP servers — `install.sh --with-codegraph` wires codegraph; others register manually.", ""]
+        for sid, s in servers.items():
+            args = " ".join(str(x) for x in (s.get("args", []) or []))
+            lines.append("- %s: `%s %s` -> %s" % (sid, s.get("command", ""), args, s.get("targets", [])))
+        _write(os.path.join(BUILD_DIR, "project", "MCP.md"), "\n".join(lines) + "\n")
+        n["mcp"] = len(servers)
+    return n
+
+
+def emit_commands(cfg):
+    """Compile each command in config/commands.yaml into EVERY tool's native format, so the
+    same command triggers whether the user runs Claude, Codex, Gemini, or Cursor.
+      Claude  -> build/commands/claude/<name>.md   (frontmatter + body)
+      Codex   -> build/commands/codex/<name>.md    (custom prompt, invoked /prompts:<name>)
+      Gemini  -> build/commands/gemini/<name>.toml  (description + prompt)
+      Cursor  -> build/commands/cursor/<name>.md
+    """
+    cmds = (cfg.get("commands", {}) or {}).get("commands", {}) or {}
+    for name, c in cmds.items():
+        desc, body = c.get("description", ""), c.get("body", "")
+        _write(os.path.join(BUILD_DIR, "commands", "claude", name + ".md"),
+               "---\ndescription: %s\n---\n%s\n\n%s\n" % (desc, GEN_MD, body))
+        _write(os.path.join(BUILD_DIR, "commands", "codex", name + ".md"),
+               "# %s\n%s\n\n%s\n" % (desc, GEN_MD, body))
+        tprompt = body.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+        _write(os.path.join(BUILD_DIR, "commands", "gemini", name + ".toml"),
+               '# coder-ai-os:generated\ndescription = "%s"\nprompt = """\n%s\n"""\n'
+               % (desc.replace('"', '\\"'), tprompt))
+        _write(os.path.join(BUILD_DIR, "commands", "cursor", name + ".md"),
+               "# %s\n%s\n\n%s\n\n%s\n" % (name, GEN_MD, desc, body))
+    return len(cmds)
+
+
+def cmd_build(cfg):
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    for fname, body in compile_all(cfg).items():
+        with open(os.path.join(BUILD_DIR, fname), "w", encoding="utf-8") as f:
+            f.write(body)
+        print("  compiled -> build/%s (%d bytes)" % (fname, len(body.encode("utf-8"))))
+    n = emit_project(cfg)
+    nc = emit_commands(cfg)
+    ns = emit_skills(cfg)
+    print("  project artifacts -> build/project/  (%d commands, %d agents, %d skills, %d hooks, %d mcp)"
+          % (n["commands"], n["agents"], n["skills"], n["hooks"], n["mcp"]))
+    print("  per-tool commands -> build/commands/{claude,codex,gemini,cursor}/  (%d each)" % nc)
+    print("  cross-tool skills -> build/skills/{claude,codex}/  (%d each)" % ns)
+    print("done. install.sh injects global files; --project drops repo-scoped artifacts.")
+    return 0
+
+
+def cmd_check(cfg, fail_on_drift=True):
+    limit = int(cfg["tokens"].get("budget", {}).get("global_file_max_kb", 3)) * 1024
+    codex_cap = int(cfg["tokens"].get("budget", {}).get("codex_total_max_kib", 32)) * 1024
+    outputs = compile_all(cfg)
+    over = False
+    drift = False
+    print("Agent Compiler — status")
+    for fname, body in outputs.items():
+        n = len(body.encode("utf-8"))
+        status = "OK" if n <= limit else "OVER BUDGET"
+        if n > limit:
+            over = True
+        print("  %-10s %5d B  %-11s (global<=%dB, %d B headroom to Codex 32KiB)"
+              % (fname, n, status, limit, codex_cap - n))
+        built = os.path.join(BUILD_DIR, fname)
+        if not os.path.exists(built) or open(built, encoding="utf-8").read() != body:
+            drift = True
+    if drift:
+        print("  DRIFT: build/ is missing or stale — run `bin/compile`.")
+    if over:
+        print("  FAIL: at least one output exceeds the global budget. Trim config/*.yaml.")
+        return 1
+    print("  all outputs within budget." + ("" if not drift else " (but build/ is stale)"))
+    # Drift is a build-freshness notice, not a config error: only --check enforces it.
+    return 1 if (drift and fail_on_drift) else 0
+
+
+def cmd_validate():
+    """Validate a (possibly AI-written) config/local.yaml overlay, then budget-check."""
+    local_path = os.path.join(CONFIG_DIR, "local.yaml")
+    print("Agent Compiler — validate overlay")
+    if not os.path.exists(local_path):
+        print("  no config/local.yaml — using committed defaults. OK.")
+        return cmd_check(load_config())
+    local = load_yaml(local_path) or {}
+    allowed = {"user", "tokens", "workflow"}
+    problems = 0
+    if "safety" in local:
+        print("  WARN: `safety:` in overlay is ignored — guardrails are non-negotiable.")
+    for k in local:
+        if k not in allowed and k != "safety":
+            print("  WARN: unknown overlay key `%s` (allowed: %s)" % (k, ", ".join(sorted(allowed))))
+            problems += 1
+    print("  overlay keys: " + ", ".join(local.keys()))
+    # Validation judges keys + budget, not build/ freshness (install recompiles).
+    rc = cmd_check(load_config(), fail_on_drift=False)
+    return rc or (1 if problems else 0)
+
+
+def cmd_doctor():
+    """Health report: budget, drift, config conflicts, duplicate rules — the Audit engine."""
+    cfg = load_config()
+    tok, usr, saf = cfg["tokens"], cfg["user"], cfg["safety"]
+    limit = int(tok.get("budget", {}).get("global_file_max_kb", 3)) * 1024
+    codex_cap = int(tok.get("budget", {}).get("codex_total_max_kib", 32)) * 1024
+    outputs = compile_all(cfg)
+
+    problems, conflicts, warns = [], [], []
+    largest, drift = 0, False
+    for fname, body in outputs.items():
+        n = len(body.encode("utf-8"))
+        largest = max(largest, n)
+        if n > limit:
+            problems.append("%s over budget (%d > %d B)" % (fname, n, limit))
+        built = os.path.join(BUILD_DIR, fname)
+        if not os.path.exists(built) or open(built, encoding="utf-8").read() != body:
+            drift = True
+
+    # conflicts
+    if "max_tokens" in usr and usr.get("max_tokens") != tok.get("max_tokens"):
+        conflicts.append("user.max_tokens (%s) != tokens.max_tokens (%s)"
+                         % (usr.get("max_tokens"), tok.get("max_tokens")))
+    fmt = tok.get("reply_format")
+    if fmt not in (tok.get("reply_skeletons", {}) or {}) and not tok.get("reply_skeleton"):
+        problems.append("reply_format '%s' has no matching skeleton" % fmt)
+    langs = usr.get("languages")
+    if langs is not None and not isinstance(langs, list):
+        warns.append("user.languages is not a list (%r)" % (langs,))
+
+    # overlay
+    overlay = "none"
+    local_path = os.path.join(CONFIG_DIR, "local.yaml")
+    if os.path.exists(local_path):
+        local = load_yaml(local_path) or {}
+        overlay = ", ".join(local.keys()) or "empty"
+        if "safety" in local:
+            warns.append("overlay has `safety:` (ignored — guardrails are fixed)")
+        for k in local:
+            if k not in ("user", "tokens", "workflow", "safety"):
+                warns.append("overlay unknown key `%s`" % k)
+
+    # duplicated rules
+    seen, dups = set(), 0
+    for n in saf.get("never", []) or []:
+        k = n.strip().lower()
+        dups += 1 if k in seen else 0
+        seen.add(k)
+
+    # skills: enabled must have a SKILL.md; defined-but-not-enabled = unused
+    skl = cfg.get("skills", {}) or {}
+    enabled = skl.get("enabled", []) or []
+    defined = (skl.get("skills", {}) or {})
+    missing_skill = [s for s in enabled if not os.path.exists(os.path.join(ROOT, "skills", str(s), "SKILL.md"))]
+    unused = [s for s in defined if s not in enabled]
+    for s in missing_skill:
+        problems.append("skill '%s' enabled but skills/%s/SKILL.md missing" % (s, s))
+
+    # context: estimate tokens (~bytes/4) vs the advisory global-instruction target
+    ctx_budget = int((cfg.get("context", {}) or {}).get("budgets_tokens", {}).get("global_instruction", 0) or 0)
+    est_tokens = largest // 4
+    ctx_note = ""
+    if ctx_budget:
+        ctx_note = "~%d tok vs %d target (%s)" % (est_tokens, ctx_budget,
+                                                  "HIGH" if est_tokens > ctx_budget else "ok")
+
+    counts = "%d commands · %d subagents · %d hooks · %d mcp" % (
+        len((cfg.get("commands", {}) or {}).get("commands", {}) or {}),
+        len((cfg.get("subagents", {}) or {}).get("subagents", {}) or {}),
+        len((cfg.get("hooks", {}) or {}).get("hooks", {}) or {}),
+        len((cfg.get("mcp", {}) or {}).get("servers", {}) or {}))
+
+    fail = bool(problems)
+    health = "FAIL" if fail else ("WARN" if (conflicts or warns) else "PASS")
+    print("coder-ai-os doctor")
+    print("  configuration     %s" % ("FAIL" if fail else "PASS"))
+    print("  token budget      %d B / %d B  (largest output, %d B headroom to Codex 32KiB)"
+          % (largest, limit, codex_cap - largest))
+    print("  instruction size  %s" % ("OVER" if largest > limit else "GOOD"))
+    if ctx_note:
+        print("  context health    %s" % ctx_note)
+    print("  conflicts         %d" % len(conflicts))
+    print("  duplicated rules  %d" % dups)
+    print("  drift             %s" % ("STALE — run bin/compile" if drift else "clean"))
+    print("  overlay           %s" % overlay)
+    print("  skills            %d enabled, %d unused" % (len(enabled), len(unused)))
+    print("  harness           %s" % counts)
+    for c in conflicts:
+        print("    conflict: " + c)
+    for p in problems:
+        print("    FAIL: " + p)
+    for w in warns:
+        print("    warn: " + w)
+    print("  --- health: %s" % health)
+    return 1 if fail else 0
+
+
+def cmd_print_mcp():
+    """Emit config/mcp.yaml servers tab-delimited for install.sh to register generically:
+    name<TAB>command<TAB>space-joined-args<TAB>comma-targets<TAB>installer"""
+    servers = (load_config().get("mcp", {}) or {}).get("servers", {}) or {}
+    for name, s in servers.items():
+        args = " ".join(str(x) for x in (s.get("args", []) or []))
+        targets = ",".join(str(t) for t in (s.get("targets", []) or []))
+        print("\t".join([str(name), str(s.get("command", "")), args, targets,
+                         str(s.get("installer", "") or "")]))
+    return 0
+
+
+def main(argv):
+    if "--print-mcp" in argv:
+        return cmd_print_mcp()
+    if "--project" in argv:
+        # Compile THIS repo: merge its .coder-ai/project.yaml and write to .coder-ai/generated/.
+        i = argv.index("--project")
+        pdir = os.path.abspath(argv[i + 1]) if i + 1 < len(argv) else os.getcwd()
+        global BUILD_DIR
+        BUILD_DIR = os.path.join(pdir, ".coder-ai", "generated")
+        cfg = load_config(repo_overlay=os.path.join(pdir, ".coder-ai", "project.yaml"))
+        return cmd_build(cfg)
+    if "--doctor" in argv:
+        return cmd_doctor()
+    if "--validate" in argv:
+        return cmd_validate()
+    cfg = load_config()
+    if "--check" in argv:
+        return cmd_check(cfg)
+    return cmd_build(cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
