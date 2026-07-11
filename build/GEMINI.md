@@ -32,5 +32,6 @@ VALIDATION: command -> pass/fail (observed)
 BUGS/RISKS · NOT PERFORMED
 ```
 End-of-task: full goal review in this format, uncapped (mid-task stays capped).
+Reply in the language of the latest message.
 
 Autonomy is a UI toggle: Settings -> Terminal Execution Policy. Personal overrides live in your user GEMINI.md.

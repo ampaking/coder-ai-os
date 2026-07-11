@@ -32,5 +32,6 @@ VALIDATION: command -> pass/fail (observed)
 BUGS/RISKS · NOT PERFORMED
 ```
 End-of-task: full goal review in this format, uncapped (mid-task stays capped).
+Reply in the language of the latest message.
 
 Personal overrides: `~/.claude/CLAUDE.local.md` (seeded from `config/user.yaml`) wins over this block. Reviewer roles: `/code-review`.

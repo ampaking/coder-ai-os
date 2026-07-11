@@ -18,6 +18,28 @@ and Gemini all behave like you — instead of being set up five different ways.
 **One profile in → every agent out.** Any language, any framework. A **harness compiler** for
 AI coding agents — not another AGENTS.md generator.
 
+### Set it up once — every AI tool obeys
+
+You describe how you work **one time**. coder-ai-os compiles that into the native config file each
+AI coding tool already reads — so you never configure Claude, Codex, Cursor, Copilot, and Gemini
+five separate ways (and never keep them in sync by hand).
+
+```
+                    ┌──────────────────────────────┐
+   how you work  →  │   config/*.yaml  (edit once)  │
+   guardrails       └──────────────┬───────────────┘
+   your style                      │  bin/compile
+   reply format                    ▼
+        ┌───────────────┬──────────┴─────┬───────────────┬───────────────┐
+        ▼               ▼                ▼               ▼               ▼
+   Claude Code     OpenAI Codex       Cursor      GitHub Copilot     Gemini
+   CLAUDE.md        AGENTS.md       .cursor/rules   copilot-…md      GEMINI.md
+```
+
+Change one setting → re-run once → **all five agents update together.** Guardrails (no `.env`
+reads, no `git push`, no sudo/deploys) are compiled to the top of every file and can't be
+weakened.
+
 > Grounded in harness-engineering research: the *harness* — instructions, tools, guardrails,
 > memory — not the model, is what makes an agent reliable ([arXiv:2602.14690](https://arxiv.org/pdf/2602.14690)).
 
