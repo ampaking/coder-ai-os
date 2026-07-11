@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "remind to run the test suite before reporting done \u2014 confirm lint/typecheck/tests ran for changed code and report the observed result; if validation is pending and code changed, keep working."
+          }
+        ]
+      }
+    ]
+  }
+}

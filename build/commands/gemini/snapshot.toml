@@ -1,0 +1,5 @@
+# coder-ai-os:generated
+description = "Regenerate the repository orientation snapshot"
+prompt = """
+Run scripts/update-ai-context.sh and summarize what structurally changed.
+"""
