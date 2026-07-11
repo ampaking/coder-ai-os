@@ -27,7 +27,7 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the
-project maintainer at **[redacted]**, or through a
+project maintainers through a
 [private security advisory](https://github.com/ampaking/coder-ai-os/security/advisories) for
 sensitive reports. All complaints will be reviewed and investigated promptly and fairly, and the
 reporter's identity will be kept confidential. Maintainers who do not follow or enforce this Code

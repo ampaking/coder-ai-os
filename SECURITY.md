@@ -4,8 +4,7 @@
 
 Please report security issues **privately** — do not open a public issue for anything exploitable.
 
-- Preferred: open a [private security advisory](https://github.com/ampaking/coder-ai-os/security/advisories/new).
-- Or email the maintainer: **[redacted]**.
+- Open a [private security advisory](https://github.com/ampaking/coder-ai-os/security/advisories/new) — reports stay private to the maintainers.
 
 You'll get an acknowledgement within a few days. Once a fix is available, we'll credit you in the
 release notes unless you prefer to stay anonymous.
