@@ -1,0 +1,14 @@
+# Per-machine preference overlay written by bin/setup — not shared.
+config/local.yaml
+
+# build/ IS committed on purpose (so install works without python3); do not ignore it.
+
+# Python tooling junk (compiler is stdlib; these are cache dirs, never commit them)
+__pycache__/
+*.pyc
+.mypy_cache/
+
+# coder-ai-os dogfoods itself: its own .ai/ workspace (snapshot, roadmap, standards,
+# memory) is generated/internal — not part of the released tool. The tool still writes
+# .ai/ into the repos you point it at; this ignore only affects THIS repo.
+.ai/
