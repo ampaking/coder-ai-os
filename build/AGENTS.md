@@ -32,5 +32,6 @@ VALIDATION: command -> pass/fail (observed)
 BUGS/RISKS · NOT PERFORMED
 ```
 End-of-task: full goal review in this format, uncapped (mid-task stays capped).
+Reply in the language of the latest message.
 
 Budget: keep this global `AGENTS.md` <3 KB — Codex truncates all concatenated AGENTS.md at 32 KiB. Autonomy: `codex --profile autonomous`.

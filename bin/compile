@@ -141,15 +141,17 @@ def _apply_overlay(cfg, path):
             deep_merge(cfg[stem], over)
 
 
-def load_config(repo_overlay=None):
+def load_config(repo_overlay=None, use_machine_overlay=True):
     # Precedence (low → high): defaults < language preset < machine overlay < repo overlay.
+    # use_machine_overlay=False ignores config/local.yaml — used to render the COMMITTED,
+    # shared build/ (defaults-only), so per-machine prefs never leak into the artifact.
     cfg = {}
     for stem in STEMS:
         p = os.path.join(CONFIG_DIR, stem + ".yaml")
         cfg[stem] = load_yaml(p) if os.path.exists(p) else {}
 
     local_path = os.path.join(CONFIG_DIR, "local.yaml")
-    local = load_yaml(local_path) or {} if os.path.exists(local_path) else {}
+    local = (load_yaml(local_path) or {}) if (use_machine_overlay and os.path.exists(local_path)) else {}
     local.pop("safety", None)  # guardrails are non-negotiable
 
     # Repo overlay (highest precedence) — <repo>/.coder-ai/project.yaml, when compiling a repo.
@@ -444,6 +446,7 @@ def cmd_check(cfg, fail_on_drift=True):
     limit = int(cfg["tokens"].get("budget", {}).get("global_file_max_kb", 3)) * 1024
     codex_cap = int(cfg["tokens"].get("budget", {}).get("codex_total_max_kib", 32)) * 1024
     outputs = compile_all(cfg)
+    ref = compile_all(load_config(use_machine_overlay=False))  # committed build/ is defaults-only
     over = False
     drift = False
     print("Agent Compiler — status")
@@ -455,7 +458,7 @@ def cmd_check(cfg, fail_on_drift=True):
         print("  %-10s %5d B  %-11s (global<=%dB, %d B headroom to Codex 32KiB)"
               % (fname, n, status, limit, codex_cap - n))
         built = os.path.join(BUILD_DIR, fname)
-        if not os.path.exists(built) or open(built, encoding="utf-8").read() != body:
+        if not os.path.exists(built) or open(built, encoding="utf-8").read() != ref.get(fname, body):
             drift = True
     if drift:
         print("  DRIFT: build/ is missing or stale — run `bin/compile`.")
@@ -496,6 +499,7 @@ def cmd_doctor():
     limit = int(tok.get("budget", {}).get("global_file_max_kb", 3)) * 1024
     codex_cap = int(tok.get("budget", {}).get("codex_total_max_kib", 32)) * 1024
     outputs = compile_all(cfg)
+    ref = compile_all(load_config(use_machine_overlay=False))  # committed build/ is defaults-only
 
     problems, conflicts, warns = [], [], []
     largest, drift = 0, False
@@ -505,7 +509,7 @@ def cmd_doctor():
         if n > limit:
             problems.append("%s over budget (%d > %d B)" % (fname, n, limit))
         built = os.path.join(BUILD_DIR, fname)
-        if not os.path.exists(built) or open(built, encoding="utf-8").read() != body:
+        if not os.path.exists(built) or open(built, encoding="utf-8").read() != ref.get(fname, body):
             drift = True
 
     # conflicts
@@ -599,13 +603,22 @@ def cmd_print_mcp():
 
 
 def main(argv):
+    global BUILD_DIR
+    if "--out" in argv:
+        # Write the build tree to a custom directory instead of the committed build/.
+        # Used at install time (with --overlay) so personalized output never lands in
+        # the committed artifact.
+        i = argv.index("--out")
+        if i + 1 >= len(argv):
+            print("error: --out requires a directory argument", file=sys.stderr)
+            return 2
+        BUILD_DIR = os.path.abspath(argv[i + 1])
     if "--print-mcp" in argv:
         return cmd_print_mcp()
     if "--project" in argv:
         # Compile THIS repo: merge its .coder-ai/project.yaml and write to .coder-ai/generated/.
         i = argv.index("--project")
         pdir = os.path.abspath(argv[i + 1]) if i + 1 < len(argv) else os.getcwd()
-        global BUILD_DIR
         BUILD_DIR = os.path.join(pdir, ".coder-ai", "generated")
         cfg = load_config(repo_overlay=os.path.join(pdir, ".coder-ai", "project.yaml"))
         return cmd_build(cfg)
@@ -613,10 +626,15 @@ def main(argv):
         return cmd_doctor()
     if "--validate" in argv:
         return cmd_validate()
-    cfg = load_config()
+    if "--overlay" in argv:
+        # Install-time: apply this machine's config/local.yaml so the user's own
+        # ~/.claude gets personalized. Pair with --out <tmp> so the committed build/
+        # is never overwritten with per-machine content.
+        return cmd_build(load_config(use_machine_overlay=True))
     if "--check" in argv:
-        return cmd_check(cfg)
-    return cmd_build(cfg)
+        return cmd_check(load_config())
+    # Default: render the COMMITTED, shared build/ from defaults only (no machine overlay).
+    return cmd_build(load_config(use_machine_overlay=False))
 
 
 if __name__ == "__main__":

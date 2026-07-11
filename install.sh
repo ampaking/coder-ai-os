@@ -43,21 +43,34 @@ TOML_END_OLD='# <<< ai-agent-os:managed <<<'
 
 log(){ printf '  %s\n' "$*"; }
 
-# compile_step — refresh build/*.md from config/*.yaml when python3 is available.
-# The committed build/ is used either way, so install works without python3 too.
+# OVERLAY_BUILD — set by compile_step to a temp dir holding this machine's PERSONALIZED
+# build (config/local.yaml applied). Empty => fall back to the committed defaults-only build/.
+OVERLAY_BUILD=""
+cleanup_overlay_build(){ [ -n "$OVERLAY_BUILD" ] && rm -rf "$OVERLAY_BUILD"; }
+trap cleanup_overlay_build EXIT
+
+# compile_step — render this machine's personalized build into a TEMP dir when python3 is
+# available, so per-machine prefs (config/local.yaml) reach ~/.claude WITHOUT ever
+# overwriting the committed, defaults-only build/. Install works without python3 too: it
+# just uses the committed build/ as-is.
 compile_step(){
   if command -v python3 >/dev/null 2>&1 && [ -x "$REPO_DIR/bin/compile" ]; then
-    if [ "$DRY_RUN" = 1 ]; then log "would compile config/*.yaml -> build/*.md"; return; fi
-    if python3 "$REPO_DIR/bin/compile" >/dev/null; then log "compiled config/*.yaml -> build/";
-    else log "SKIP compile (bin/compile failed) — using committed build/ (or shared/rules.md)"; fi
+    if [ "$DRY_RUN" = 1 ]; then log "would compile personalized config/*.yaml -> (temp build)"; return; fi
+    local tmp; tmp="$(mktemp -d)"
+    if python3 "$REPO_DIR/bin/compile" --overlay --out "$tmp" >/dev/null; then
+      OVERLAY_BUILD="$tmp"; log "compiled personalized config/*.yaml (committed build/ untouched)";
+    else rm -rf "$tmp"; log "SKIP compile (bin/compile failed) — using committed build/ (or shared/rules.md)"; fi
   else
     log "python3 not found — using committed build/*.md (run bin/compile after editing config)"
   fi
 }
 
-# tool_body <tool-filename> — the compiled per-tool block if present, else the fallback.
+# tool_body <tool-filename> — the compiled per-tool block: personalized (temp) build if
+# compile_step produced one, else the committed defaults-only build/, else the fallback.
 tool_body(){
-  local f="$REPO_DIR/build/$1"
+  local f
+  [ -n "$OVERLAY_BUILD" ] && [ -f "$OVERLAY_BUILD/$1" ] && { echo "$OVERLAY_BUILD/$1"; return; }
+  f="$REPO_DIR/build/$1"
   if [ -f "$f" ]; then echo "$f"; else echo "$REPO_DIR/shared/rules.md"; fi
 }
 
