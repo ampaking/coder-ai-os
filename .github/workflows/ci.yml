@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax-check shell scripts
+        run: |
+          set -e
+          for f in install.sh bootstrap.sh bin/coder-ai-os bin/setup \
+                   scripts/update-ai-context.sh scripts/discover-standards.sh; do
+            echo "bash -n $f"
+            bash -n "$f"
+          done
+
+      - name: Compiler validates + stays within budget
+        run: |
+          python3 bin/compile --validate
+          python3 bin/compile --check
+
+      - name: Compiled build/ is up to date with config/
+        run: |
+          python3 bin/compile >/dev/null
+          if ! git diff --quiet -- build/; then
+            echo "::error::build/ is stale — run 'bin/compile' and commit the result"
+            git --no-pager diff -- build/
+            exit 1
+          fi
+
+      - name: Install into a sandbox HOME (never a real home)
+        run: |
+          set -e
+          export HOME="$(mktemp -d)"
+          ./install.sh --yes
+          test -f "$HOME/.claude/CLAUDE.md"
+          grep -q 'coder-ai-os:managed' "$HOME/.claude/CLAUDE.md"
