@@ -1,0 +1,24 @@
+# TOKEN policy + reply format. budget.* is enforced by `bin/compile --check`.
+# reply_format selects one of reply_skeletons below, so choosing `minimal` actually
+# shrinks every reply — the format is behavioral, not cosmetic.
+reply_format: flow-graph
+max_tokens: 500
+graphs: true
+# When a task/session finishes, give a full goal review in the reply format — this final
+# review is EXEMPT from max_tokens (mid-task replies stay within the cap). Set false to cap all.
+final_review: true
+budget:
+  global_file_max_kb: 3
+  codex_total_max_kib: 32
+reply_skeletons:
+  flow-graph:
+    - "RESULT: completed | partial | blocked"
+    - "INTENT: interpreted goal + assumptions made"
+    - "CURRENT -> NEW  (flow-graph)"
+    - "CHANGES: file:line -> concise change"
+    - "VALIDATION: command -> pass/fail (observed)"
+    - "BUGS/RISKS · NOT PERFORMED"
+  minimal:
+    - "RESULT + one line: what changed · VALIDATION pass/fail · any residual risk"
+  prose:
+    - "2-4 sentences: what changed, why, the observed validation result, residual risk."

@@ -1,0 +1,13 @@
+# MCP servers — generic registry. `install.sh --with-codegraph` wires CodeGraph; other
+# entries are reported by doctor and documented for manual/automated registration.
+servers:
+  codegraph:
+    command: codegraph
+    args: [mcp]
+    targets: [claude, codex]
+    installer: codegraph
+    install: npm i -g @colbymchenry/codegraph
+    purpose: local code index — search/callers/callees/context/impact
+# Add more servers here; `install.sh --with-mcp` registers each with its target tools using
+# their native mechanism (claude mcp add · codex config.toml · gemini/cursor mcpServers JSON).
+# A server with an `installer:` field is handled by that dedicated path instead of generically.

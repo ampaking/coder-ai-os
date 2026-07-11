@@ -1,0 +1,14 @@
+# HOW the agent works. Toggles here switch sections on/off in the compiled output.
+planning: true
+atomic_tasks: true
+self_review: true
+architecture_review: false
+protocol_file: AI_DEV_PROTOCOL.md
+clarify:
+  mode: by-exception
+  ask_before_large_scan: true
+orient:
+  strategy: query-first
+  levels: L1 locate -> L2 trace -> L3 impact -> L4 repo-wide (escalate only on evidence)
+  index: CodeGraph MCP (search/callers/callees/context/impact)
+  snapshot: .ai/PROJECT_SNAPSHOT.md

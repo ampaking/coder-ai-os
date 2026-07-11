@@ -1,0 +1,6 @@
+# Language overlay — merged when user.languages includes "TypeScript" (or "typescript").
+user:
+  coding:
+    typing: explicit (no implicit any)
+    function_style: small, pure where practical
+    comments: explain why, not what

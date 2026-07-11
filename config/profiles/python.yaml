@@ -1,0 +1,6 @@
+# Language overlay — merged when user.languages includes "Python" (or "python").
+user:
+  coding:
+    typing: explicit (type hints)
+    function_style: small, single-purpose
+    comments: explain why, not what

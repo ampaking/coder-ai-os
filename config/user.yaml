@@ -1,0 +1,17 @@
+# USER PROFILE — the engineer's own preference. This committed file is the default;
+# the setup wizard or the AI intake writes a per-machine overlay (config/local.yaml)
+# that overrides it WITHOUT editing this shared block.
+experience: senior
+verbosity: low
+graphs: true
+max_tokens: 500
+language: match-user
+review_style: graph
+risk_tolerance: low
+# Optional profile — rendered as one compact line only when set (no tokens if empty).
+languages: []
+code_style: ''
+coding:
+  function_style: ''
+  typing: ''
+  comments: ''

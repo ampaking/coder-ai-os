@@ -1,0 +1,9 @@
+# AGENT HOOKS — declarative lifecycle hooks. `--project` writes a merge-ready snippet to
+# <repo>/.claude/settings.json (a suggestion, never auto-running arbitrary commands).
+hooks:
+  post_edit:
+    event: PostToolUse
+    action: run the project formatter and linter on the edited file if defined
+  before_finish:
+    event: Stop
+    action: remind to run the test suite before reporting done

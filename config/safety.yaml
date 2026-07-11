@@ -1,0 +1,16 @@
+# GUARDRAILS — the spine. Research: negative constraints ("do not X") improve agent
+# reliability far more consistently than positive checklists, so these compile to the
+# TOP of every generated file. Booleans gate behavior; `never` lines render verbatim.
+forbid_env_read: true
+forbid_git_write: true
+forbid_sudo: true
+forbid_deploy: true
+forbid_unrelated_refactor: true
+forbid_disable_checks: true
+forbid_unneeded_deps: true
+never:
+  - Read or modify .env*, secrets, credentials, private keys, tokens, service-account.json.
+  - Run git commit/push/pull/fetch/merge/rebase/reset/checkout, sudo, deploys, or history rewrites — the human runs git writes.
+  - Refactor or touch code unrelated to the task; report such issues separately instead.
+  - Add dependencies or bump versions without direct need; disable tests/lint/types/security checks to force a pass.
+  - Change public APIs, schemas, or migrations unless the task requires it.

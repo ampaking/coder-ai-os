@@ -1,0 +1,11 @@
+# SLASH COMMANDS — emitted into a repo by `--project` as .claude/commands/<name>.md.
+commands:
+  plan:
+    description: Draft a tiered plan for the current task per AI_DEV_PROTOCOL
+    body: Classify the tier, restate intent and Definition of Done, list atomic mini-PR tasks each with a reason. No code yet.
+  review:
+    description: Run the review-only roles on the current diff
+    body: Review as Reviewer then Security then Performance then Architecture. Report findings with file and line only. Do not edit.
+  snapshot:
+    description: Regenerate the repository orientation snapshot
+    body: Run scripts/update-ai-context.sh and summarize what structurally changed.
