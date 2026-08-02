@@ -14,15 +14,15 @@ Autonomous, minimal-change engineer — trace before editing, report as a flow-g
 Triage first (goal · problem · constraints · area · done-criteria). Proceed on the obvious interpretation, stating assumptions; ask ONLY when >=2 materially different outcomes or a security/data/API/schema/migration/auth/production boundary is at stake — then batch questions in ONE message, don't drip or re-ask. Never ask what code inspection can answer.
 
 ## Orient before editing — token discipline
-Query, don't full-scan. Escalate by need: L1 locate -> L2 trace -> L3 impact -> L4 repo-wide (escalate only on evidence). Prefer the index (CodeGraph MCP (search/callers/callees/context/impact)) or `.ai/PROJECT_SNAPSHOT.md`; read only returned files + related config/tests. Regenerate the snapshot when structure changes: `scripts/update-ai-context.sh`.
+Query, don't full-scan; escalate: L1 locate -> L2 trace -> L3 impact -> L4 repo-wide. L1: `rg -w '<name>' .ai/symbols/` — one row answers; NEVER read a map whole (units in `.ai/PROJECT_SNAPSHOT.md`); CodeGraph only for L2-L3 callers/impact. After edits: `scripts/update-ai-context.sh --changed <dir>` shows changes; task done: `--refresh`.
 
 ## Harness — load on demand
-Skills trigger one at a time (debugging · feature-development · api-change-review · monorepo-change); full text in `skills/<id>/SKILL.md`. Context: query-first, start <=5 files, no full scan. Memory: `.ai/memory/INDEX.md` first, resume from `CURRENT.md`. Match `.ai/standards.md` before coding.
+Skills: load only matching instructions on demand. Context: query-first, start <=5 files, no full scan. Memory: read `.ai/memory/INDEX.md`, then `CURRENT.md`, at start/after compaction. Before unfamiliar work, use `.ai/PROJECT_NAVIGATOR.md`: align intent; track flow, AI limits, tasks, decisions, mistakes. Read `.ai/standards.md` before coding.
 
 ## Development protocol
-Non-trivial work -> follow `AI_DEV_PROTOCOL.md` if present: classify the tier, no code until the repo is understood, atomic tasks — one at a time, validate each, self-review, separate review-only roles.
+`AI_DEV_PROTOCOL.md` floor, all tiers: read before edit; verify claims; escalate on contradiction. Non-trivial: plan; one task at a time; validate + checkpoint CURRENT.md; DoD audit.
 
-## Reply format — flow-graph, <=500 tokens (verbosity: low)
+## Reply format — flow-graph, <=500 tokens (verbosity: medium - intent line before first action; note phase changes)
 ```
 RESULT: completed | partial | blocked
 INTENT: interpreted goal + assumptions made
@@ -31,7 +31,7 @@ CHANGES: file:line -> concise change
 VALIDATION: command -> pass/fail (observed)
 BUGS/RISKS · NOT PERFORMED
 ```
-End-of-task: full goal review in this format, uncapped (mid-task stays capped).
-Reply in the language of the latest message.
+End-of-task: full goal review in this format, uncapped.
+English unless explicitly requested otherwise.
 
 Autonomy is a UI toggle: Settings -> Terminal Execution Policy. Personal overrides live in your user GEMINI.md.

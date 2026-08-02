@@ -1,0 +1,6 @@
+interface:
+  display_name: "Change Monorepo"
+  short_description: "Coordinate owner-first cross-package changes"
+  default_prompt: "Use $monorepo-change to implement this change owner-first and validate every dependent package."
+policy:
+  allow_implicit_invocation: true

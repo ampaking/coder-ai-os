@@ -1,0 +1,6 @@
+interface:
+  display_name: "Develop Feature"
+  short_description: "Build scoped features through validated atomic tasks"
+  default_prompt: "Use $feature-development to implement this feature through investigation, atomic tasks, and validation."
+policy:
+  allow_implicit_invocation: true
