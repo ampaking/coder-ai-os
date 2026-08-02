@@ -8,6 +8,10 @@ __pycache__/
 *.pyc
 .mypy_cache/
 
+# Local research scratch (downloaded third-party articles/images). Not part of the
+# released tool and not ours to redistribute — never publish from this repo.
+artifacts/
+
 # coder-ai-os dogfoods itself: its own .ai/ workspace (snapshot, roadmap, standards,
 # memory) is generated/internal — not part of the released tool. The tool still writes
 # .ai/ into the repos you point it at; this ignore only affects THIS repo.
