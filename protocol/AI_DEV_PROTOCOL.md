@@ -26,12 +26,34 @@ Classify **before** doing anything. State the tier + one-line reason.
 
 | Tier | Looks like | Pipeline |
 |---|---|---|
-| **trivial** | typo, one-liner, rename, comment, obvious config value | **Fast path**: edit → validate → report. No planning artifacts. |
+| **trivial** | typo, one-liner, rename, comment, obvious config value | **Fast path**: floor (§1a) → edit → validate → report. No planning artifacts. |
 | **small** | single-file logic, isolated bug fix, one function | **Lite**: Understand → Investigate → Implement (1 change, with reason) → Validate → Self-review. |
 | **feature** | multi-file, new endpoint/component, changes a contract | **Full 10 phases**, one epic, atomic tasks. |
 | **epic** | cross-cutting, migration, refactor across packages, perf/security-sensitive | **Full + integration + regression audit**, may span multiple epics. |
 
 > The tier sets the *ceiling*, not a mandate to inflate. Never run 10 gates for a one-liner; never ship a feature as one giant diff.
+
+### 1a. Understand-first floor — no tier drops below this
+
+Most "simple-task" failures are misclassified one-liners: the *obvious* config value read by
+three scripts, the *simple* rename that is a public API, the "fix X, it's broken" where X
+isn't broken for that reason. The floor makes those impossible to hit blind, at a cost of
+seconds — it is why the trivial fast path is safe to keep fast.
+
+1. **Restate intent in one line before the first edit** — a misread is free to fix *before*
+   the change, expensive after.
+2. **Never edit a file you haven't read.** Read the target (at least the surrounding range)
+   and check its direct consumers with one `rg` for the symbol/key you're changing.
+3. **Verify claimed behavior before changing it.** If the request asserts how the code
+   currently behaves ("X is broken", "X returns Y"), observe that behavior first (run it,
+   run the failing test, or read the code path that proves it). Never fix an unverified claim.
+4. **Escalate on contradicting evidence.** If anything found during 1–3 contradicts the tier
+   or the request's assumption (more consumers than expected, a contract surface, a different
+   root cause) — **stop, reclassify the tier, announce the new tier + reason**, and run the
+   bigger tier's pipeline. Never absorb surprise scope silently.
+5. **Validation floor.** Even trivial ends with the narrowest *observed* check (lint/typecheck
+   of the touched file, the nearest test, or re-running the reproduced command) — and the diff
+   touches only the files named in the intent line.
 
 ### Clarify by exception (all tiers) — don't ask first, don't scan blindly
 
@@ -63,7 +85,7 @@ Each phase has an **entry gate**, an **output artifact**, and an **exit gate**. 
 
 **Phase 1 — Understand Goal.** Restate the intent in your words + a Definition of Done (observable). Classify the request type (change / explain / investigate). If ambiguous, ask ≤3 blocking questions. → `plan.md` (Goal + DoD).
 
-**Phase 2 — Repository Investigation.** Entry points, callers, dependencies, tests, config, docs. **Query, don't full-scan:** use the code index if present (CodeGraph MCP — `search`/`callers`/`callees`/`context`/`impact`), else read `.ai/PROJECT_SNAPSHOT.md` for orientation, then open only the returned files + directly related config/tests. **No code edits in this phase.** → findings appended to `plan.md`. *Exit gate: you can name every file the change will touch and why.*
+**Phase 2 — Repository Investigation.** Entry points, callers, dependencies, tests, config, docs. **Query, don't full-scan:** use `rg`/filename search first to locate the narrow surface; use the code index (CodeGraph `callers`/`callees`/`impact`) only when dependency tracing is needed; use `.ai/PROJECT_SNAPSHOT.md` as an orientation fallback. Open only returned files + directly related config/tests. **No code edits in this phase.** → findings appended to `plan.md`. *Exit gate: you can name every file the change will touch and why.*
 
 > **Investigation budget — progressive. Start at Level 1; escalate only when evidence requires it.**
 > - **L0 Instructions** — repo-local agent instructions + project identity (`AGENTS.md`/`CLAUDE.md`).
@@ -72,7 +94,11 @@ Each phase has an **entry gate**, an **output artifact**, and an **exit gate**. 
 > - **L3 Impact** — public APIs, integration points, migrations, security, regression risk.
 > - **L4 Repo-wide** — broad architecture only when the change genuinely crosses subsystems or lower levels can't resolve the task.
 >
-> **Context rules:** read symbols/ranges, not whole files · don't re-read unchanged files · don't load all tests/docs/architecture by default · prefer index / symbol / reference / dependency queries · keep a compact record of files·symbols·assumptions·decisions · treat tool output as temporary (summarize before continuing) · never use context from another repository.
+> **Context rules:** read symbols/ranges, not whole files · don't re-read unchanged files · don't load all tests/docs/architecture by default · prefer index / symbol / reference / dependency queries — the code atlas (`.ai/symbols/`) answers a symbol lookup in one `rg -w` line and a unit's wiring in one map section; NEVER read a whole map or unaffected code · after a task, `--refresh` Δ lines show old vs new symbols: review only what they name, flag unintended removals and orphaned (dead) functions · keep a compact record of files·symbols·assumptions·decisions · treat tool output as temporary (summarize before continuing) · never use context from another repository.
+> **Delegation:** For feature/epic work, parallelize only independent read-heavy exploration,
+> tests, or review when it reduces wall time or protects the main context. Return compact evidence;
+> keep writes serial. Subagents trade more total tokens for isolation and speed, so skip them for routine work.
+
 
 **Phase 3 — Architecture Mapping.** Draw the **CURRENT** change graph (§5) of the affected flow. → `change-graph.md` (before).
 
@@ -133,7 +159,14 @@ Every code change carries its **Reason** — that is what turns diffs into livin
 └── final-report.md    Phase 10
 ```
 
-Commit `.ai/` with the feature — it is the *why* history that diffs cannot capture.
+Committing `.ai/` depends on the repo's **memory scope** — read it from the
+`.ai/PROJECT_SNAPSHOT.md` header before touching git state:
+- **SHARED** (`.ai/` tracked): commit `.ai/` updates with the feature — it is the *why*
+  history that diffs cannot capture, and the team's cross-machine resume state.
+- **LOCAL-ONLY** (`.ai/` git-ignored, or the developer chooses not to push it): never
+  `git add` it and never force past the ignore; treat checkpoints as machine-local, assume
+  teammates/CI cannot see them, and on a fresh clone reconstruct from code + git log.
+- **Untracked so far**: whether to share is the human's decision — surface it once, don't decide.
 
 ---
 
@@ -223,7 +256,7 @@ BUGS/RISKS · NOT PERFORMED
 
 ## 9. Hard gates (never cross these)
 
-1. **No code before Phase 2 is complete** (repo understood, files named).
+1. **No code before Phase 2 is complete** (repo understood, files named) — and no edit in *any* tier before the §1a floor (intent stated, target read, claims verified).
 2. **One task at a time** — no multi-task mega-diffs; no touching files outside the task's declared Files.
 3. **No "done" without an observed validation run.**
 4. **Implementer never approves its own work** — reviewer roles are separate passes.
