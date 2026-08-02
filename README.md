@@ -48,11 +48,48 @@ weakened.
 - **Compile Once** — turn one profile into each tool's native config (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules`, Copilot instructions, `GEMINI.md`)
 - **Enforce Guardrails** — hard, always-on limits (no `.env`/secrets, no `git push`, no sudo/deploy, no unrelated refactors) compiled to the top of every file
 - **Match Your Style** — learn the repo's own Prettier/ESLint/tsconfig, Black/Ruff/mypy config into standards agents follow before writing code
-- **Remember Across Agents** — file-based, git-committed memory, so switching Claude ↔ Codex ↔ Cursor loses nothing and you resume where you left off
-- **Trigger Everywhere** — commands (`/plan`, `/review`, `/snapshot`) and lazy-loaded skills in every CLI's native format
+- **Remember Across Agents** — file-based memory, so switching Claude ↔ Codex ↔ Cursor loses nothing; commit `.ai/` to share resume state with your team, or gitignore it to keep it machine-local — agents detect which and behave accordingly
+- **Navigate Together** — a shared map aligns intent before action, connects relevant files/tasks, exposes AI limits and human decisions, and records mistake recovery
+- **Trigger Everywhere** — commands (`/plan`, `/review`, `/task`, `/snapshot`) and lazy-loaded skills in every CLI's native format
 - **Navigate Monorepos** — fix the owning package first, trace dependents, fix each in isolation, then integrate at the root
+- **Orient Without Scanning** — sync generates a layered map of any repo (nested layouts and no-manifest folders included): a module-flow tree with cycle marks, per-package symbol indexes (`function → file:line`, grepped not loaded), staleness fingerprints, and `--changed` to see added/removed functions vs git HEAD
+- **Fail-Safe Understanding** — an understand-first floor no task can skip: state intent, never edit an unread file, verify claimed behavior, escalate when evidence contradicts the plan; a symbol diff at task end flags out-of-scope edits
+- **See Token Use Live** — install ships Claude Code and Codex status lines (context % / token counters, harness-measured); your own statusline config always wins
 - **Reports Your Way** — every task ends with a goal review in your reply format (flow-graph, prose, or minimal); the final review isn't clipped by the token budget
 - **Verify & Budget** — a small, budget-enforced instruction block; prove what every CLI actually loads with one command
+
+## What's new
+
+Highlights of the current release. Full detail in the [changelog](CHANGELOG.md).
+
+- **Code atlas instead of file scanning** — `.ai/symbols/` is now a hierarchy of Markdown maps:
+  `INDEX.md` (packages + dependency diagram) → `<unit>.md` (folder import graph, counted edges)
+  → `<unit>/<folder>.md` (per-file symbol tables). Edges come from *parsed imports*, not guesses.
+  A symbol lookup costs one line — `rg -w '<name>' .ai/symbols/` — instead of loading a whole file.
+- **Know what you changed** — `--changed` shows added/removed/moved functions vs git HEAD with no
+  saved baseline, `--refresh` regenerates exactly the maps your edits touched and prints the trace,
+  and `--check` tells you whether a map is still fresh before an agent trusts it.
+- **Resume any task, any agent** — the new `/task` command and `task-lifecycle` skill carry a task
+  across sessions, context compaction, and tool switches using checked-in state, so Claude → Codex
+  mid-task loses nothing.
+- **A shared human–AI map** — every repo gets `.ai/PROJECT_NAVIGATOR.md`: intended outcome, current
+  flow, connected files, AI limits, open decisions, and mistake recovery. Your edits survive `sync`.
+- **Codex the way Codex works** — read-only review agents compile to `.codex/agents`, skills to
+  `.agents/skills`, and no sandbox mode is forced on you anymore (pinned modes broke on Ubuntu
+  23.10+); Codex picks its own, and `approval_policy="on-failure"` lets it ask to retry.
+- **Live context in the status line** — install adds a Claude Code and Codex status line showing
+  real context use, measured by the harness rather than guessed by the model. Your own config wins.
+- **An understand-first floor** — no tier can skip it: state intent before the first edit, never
+  edit an unread file, verify claimed behavior before fixing it, and escalate when evidence
+  contradicts the plan.
+- **Three more review roles** — `architecture`, `explorer`, and `performance` join `reviewer` and
+  `security` in both Claude and Codex formats.
+- **Quieter, more useful defaults** — verbosity is behavioral and defaults to `medium` (a one-line
+  intent up front plus a note per phase change), and Claude's deny rules dropped the `Write(...)`
+  entries that were silent no-ops causing startup warnings.
+
+Already using coder-ai-os? Run `./install.sh` once, then `coder-ai-os sync` in each repo — managed
+regions update while your guidance, memory, and navigator content stay untouched.
 
 ## Documentation & installation
 
@@ -85,9 +122,28 @@ coder-ai-os is split into a **global** layer (how *you* work) and a **per-repo**
 cd ~/coder-ai-os && ./install.sh
 
 # 2. PER-REPO — run inside any project. Writes that repo's rules, commands,
-#    skills, standards, and memory into the repo itself (nothing global).
+#    skills, standards, project navigator, and memory into the repo itself (nothing global).
 cd ~/your-app && coder-ai-os setup
 ```
+
+To safely refresh the complete harness in an existing repository, use one command:
+
+```sh
+cd ~/your-app && coder-ai-os sync
+```
+
+`sync` updates only coder-ai-os managed/generated regions and keeps user guidance, Codex overrides,
+`.ai/memory/` task state, and the maintained `.ai/PROJECT_NAVIGATOR.md`. Missing navigators are
+seeded for projects configured by older versions. It also additively creates or updates `.codex/config.toml`, preserving
+existing top-level Codex values and unrelated TOML content. Every supported agent follows the same tiered `AI_DEV_PROTOCOL.md`: plan with intent and Definition
+of Done, CURRENT→NEW graph, one isolated task at a time, validation checkpoints, review-only passes,
+and a final diff-to-goal audit. English remains the default unless explicitly
+requested otherwise.
+
+Codex keeps its host-selected sandbox so the same generated harness works across Linux, macOS,
+Windows, containers, and restricted runners; coder-ai-os adds `approval_policy="on-failure"` only
+when the user has not chosen a policy. Claude uses auto mode with hard deny rules. Existing user or
+project safety values always win, and coder-ai-os never enables unrestricted execution automatically.
 
 > **`coder-ai-os: command not found`?** The `coder-ai-os` command only exists *after* step 1
 > (global `./install.sh`) — that step creates the symlink. If it's still not found, `~/.local/bin`
@@ -123,7 +179,7 @@ Or set them directly in a per-machine overlay (`config/local.yaml`), then `./ins
 
 ```yaml
 user:
-  verbosity: high              # low · medium · high
+  verbosity: low               # low · medium (default) · high — medium adds mid-task progress notes
   languages: [Python, TypeScript]
 tokens:
   reply_format: minimal        # flow-graph · prose · minimal  (behavioral — minimal is really shorter)
