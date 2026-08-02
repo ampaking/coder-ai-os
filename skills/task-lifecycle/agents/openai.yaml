@@ -1,0 +1,6 @@
+interface:
+  display_name: "Run Task Lifecycle"
+  short_description: "Resume, execute, validate, and checkpoint tasks"
+  default_prompt: "Use $task-lifecycle to resume the active repository task from its portable checkpoint."
+policy:
+  allow_implicit_invocation: true
