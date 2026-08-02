@@ -1,18 +1,24 @@
-# Skill: monorepo-change
+---
+name: monorepo-change
+description: Implement a monorepo change spanning packages or affecting a shared API, schema, or contract with owner-first isolation and root integration validation.
+---
 
-Trigger: you are in a monorepo and a change touches a shared API, schema, or contract — or a
-fix may span more than one package/app/service.
+# Monorepo change
 
 Work **owner-first, isolated per package, integrate at the root**. Never fan out edits across
 packages at once.
 
 1. **Locate the owning package.** Map the change to the package that owns the surface — e.g. an
    API change belongs in `services/user-api` or `services/admin-api`, not in a web app. Use the
-   repo layout / index (callers, imports, workspace deps) to decide. Announce the owner.
+   atlas: `.ai/symbols/INDEX.md` draws the package dependency graph (who consumes whom), and the
+   owner's unit map shows its folder wiring with measured import counts — query these instead of
+   scanning packages. Announce the owner.
 2. **Fix the owner in isolation.** Change only that package's files. Run *that package's own*
    tests/lint/typecheck from its directory. Do not touch sibling packages yet. Leave the tree green there.
-3. **Trace cross-package impact.** From the changed surface, find every dependent: query
-   `callers`/`impact`, workspace `dependencies`, and generated clients/types. Produce a list:
+3. **Trace cross-package impact.** From the changed surface, find every dependent: the
+   snapshot's unit map lists each package's internal deps — search usages with `rg -w <name>`
+   ONLY inside dependent packages, never repo-wide. Also query `callers`/`impact`,
+   workspace `dependencies`, and generated clients/types. Produce a list:
    each affected package + *why* (e.g. `apps/user-web` — calls the changed endpoint;
    `packages/sdk` — mirrors the type).
 4. **Fix each dependent in its OWN package, one at a time.** Enter the package, make the smallest
