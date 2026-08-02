@@ -14,7 +14,7 @@ Usage:
   bin/compile            compile config/ -> build/{AGENTS,CLAUDE,GEMINI}.md
   bin/compile --check    compile to memory, report sizes/budget/drift, exit 1 if over
 """
-import sys, os, json
+import sys, os, json, re, shutil, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(ROOT, "config")
@@ -181,8 +181,7 @@ def footer(tool, cfg):
         return ("Personal overrides: `~/.claude/CLAUDE.local.md` (seeded from "
                 "`config/user.yaml`) wins over this block. Reviewer roles: `/code-review`.")
     if tool == "codex":
-        return ("Budget: keep this global `AGENTS.md` <3 KB — Codex truncates all "
-                "concatenated AGENTS.md at 32 KiB. Autonomy: `codex --profile autonomous`.")
+        return "Codex: `.codex/config.toml`; workflows: `.agents/skills/`."
     if tool == "gemini":
         return ("Autonomy is a UI toggle: Settings -> Terminal Execution Policy. "
                 "Personal overrides live in your user GEMINI.md.")
@@ -247,11 +246,12 @@ def render(cfg, tool):
     # 4. Orient
     if orient.get("strategy") == "query-first":
         L.append("## Orient before editing — token discipline")
-        L.append("Query, don't full-scan. Escalate by need: " + orient.get("levels", "") +
-                 ". Prefer the index (" + orient.get("index", "") + ") or `" +
-                 orient.get("snapshot", "") + "`; read only returned files + related "
-                 "config/tests. Regenerate the snapshot when structure changes: "
-                 "`scripts/update-ai-context.sh`.")
+        L.append("Query, don't full-scan; escalate: " + orient.get("levels", "") +
+                 ". L1: `rg -w '<name>' .ai/symbols/` — one row answers; NEVER read a map "
+                 "whole (units in `" +
+                 orient.get("snapshot", "") + "`); " + orient.get("index", "") +
+                 ". After edits: `scripts/update-ai-context.sh --changed <dir>` shows "
+                 "changes; task done: `--refresh`.")
         L.append("")
     # 4c. Harness — compact pointers only (mechanisms live in generated artifacts, not here)
     ctx = cfg.get("context", {}) or {}
@@ -262,15 +262,18 @@ def render(cfg, tool):
         L.append("## Harness — load on demand")
         parts = []
         if enabled:
-            parts.append("Skills trigger one at a time (" + " · ".join(str(s) for s in enabled) +
-                         "); full text in `skills/<id>/SKILL.md`.")
+            parts.append("Skills: load only matching instructions on demand.")
         if ctx:
             parts.append("Context: query-first, start <=" + str(ctx.get("initial_file_limit", 5)) +
                          " files, no full scan.")
         loc = str(mem.get("location") or ".ai/memory/")
         if mem.get("location"):
-            parts.append("Memory: `" + loc + "INDEX.md` first, resume from `CURRENT.md`.")
-        parts.append("Match `.ai/standards.md` before coding.")
+            parts.append("Memory: read `" + loc + "INDEX.md`, then `CURRENT.md`, at start/after compaction.")
+        nav = str(mem.get("navigator") or "")
+        if nav:
+            parts.append("Before unfamiliar work, use `" + nav +
+                         "`: align intent; track flow, AI limits, tasks, decisions, mistakes.")
+        parts.append("Read `.ai/standards.md` before coding.")
         L.append(" ".join(parts))
         L.append("")
 
@@ -284,9 +287,9 @@ def render(cfg, tool):
         if wf.get("architecture_review"):
             bits.append("architecture review")
         L.append("## Development protocol")
-        L.append("Non-trivial work -> follow `" + str(wf.get("protocol_file")) +
-                 "` if present: classify the tier, no code until the repo is understood, " +
-                 ", ".join(bits) + ", separate review-only roles.")
+        L.append("`" + str(wf.get("protocol_file")) +
+                 "` floor, all tiers: read before edit; verify claims; escalate on contradiction. "
+                 "Non-trivial: plan; one task at a time; validate + checkpoint CURRENT.md; DoD audit.")
         L.append("")
     # 6. Reply format — pick the skeleton for the chosen format (falls back to a flat
     #    reply_skeleton for backward compatibility). Format is behavioral: `minimal`
@@ -294,21 +297,27 @@ def render(cfg, tool):
     fmt = str(tok.get("reply_format", "flow-graph"))
     skeletons = tok.get("reply_skeletons", {}) or {}
     skeleton = skeletons.get(fmt) or tok.get("reply_skeleton") or []
+    verb = str(usr.get("verbosity"))
+    narrate = ""
+    if verb in ("medium", "high"):
+        narrate = " - intent line before first action; note phase changes"
     L.append("## Reply format — " + fmt + ", <=" + str(tok.get("max_tokens")) +
-             " tokens (verbosity: " + str(usr.get("verbosity")) + ")")
+             " tokens (verbosity: " + verb + narrate + ")")
     L.append("```")
     for line in skeleton:
         L.append(line)
     L.append("```")
     if tok.get("final_review"):
-        L.append("End-of-task: full goal review in this format, uncapped (mid-task stays capped).")
+        L.append("End-of-task: full goal review in this format, uncapped.")
     if usr.get("language") == "match-user":
         L.append("Reply in the language of the latest message.")
+    elif usr.get("language") == "english":
+        L.append("English unless explicitly requested otherwise.")
     L.append("")
     L.append(footer(tool, cfg))
     body = "\n".join(L).rstrip() + "\n"
     if tool == "cursor":  # .mdc requires YAML frontmatter as the very first thing
-        body = ("---\ndescription: coder-ai-os engineering defaults (generated)\n"
+        body = ("---\ndescription: coder-ai-os defaults (generated)\n"
                 "alwaysApply: true\n---\n\n") + body
     return body
 
@@ -324,32 +333,83 @@ def _write(path, content):
         f.write(content)
 
 
-def _skill_body(cfg, sid):
-    """Skill SKILL.md content with name+description frontmatter (required for discovery in
-    both Claude and Codex). Description comes from the skill's trigger — the only part loaded
-    at startup, so the agent uses it to decide whether to invoke the skill."""
+def _skill_parts(sid):
+    """Return portable Agent Skill metadata, frontmatter, and body; None if malformed."""
     src = os.path.join(ROOT, "skills", str(sid), "SKILL.md")
     if not os.path.exists(src):
         return None
     with open(src, encoding="utf-8") as f:
-        body = f.read()
-    if body.lstrip().startswith("---"):  # already has frontmatter
-        return body
-    meta = ((cfg.get("skills", {}) or {}).get("skills", {}) or {}).get(sid, {}) or {}
-    desc = meta.get("trigger") or ("use when working on " + str(sid))
-    return "---\nname: %s\ndescription: Use when — %s\n---\n%s\n\n%s" % (sid, desc, GEN_MD, body)
+        lines = f.read().splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        return None
+    meta, _ = _parse(lines[1:end], 0, 0)
+    if not isinstance(meta, dict):
+        return None
+    front = "\n".join(lines[:end + 1]) + "\n"
+    body = "\n".join(lines[end + 1:]).lstrip("\n") + "\n"
+    return meta, front, body
+
+
+def _skill_body(cfg, sid):
+    """Generated SKILL.md with canonical frontmatter plus our ownership marker."""
+    parts = _skill_parts(sid)
+    if parts is None:
+        return None
+    _, front, body = parts
+    return front + GEN_MD + "\n\n" + body
+
+
+def _emit_skill_dir(dest, sid, content, include_openai=False):
+    """Copy a complete skill bundle, then stamp its generated SKILL.md."""
+    src = os.path.join(ROOT, "skills", str(sid))
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+    if not include_openai:
+        shutil.rmtree(os.path.join(dest, "agents"), ignore_errors=True)
+    _write(os.path.join(dest, "SKILL.md"), content)
+
+
+def skill_problems(cfg):
+    """Validate the portable Agent Skills core shared by Claude and Codex."""
+    issues = []
+    budget = int((cfg.get("context", {}) or {}).get("budgets_tokens", {}).get("skill_summary", 80) or 80)
+    for sid in (cfg.get("skills", {}) or {}).get("enabled", []) or []:
+        parts = _skill_parts(sid)
+        if parts is None:
+            issues.append("skill '%s' is missing or has invalid YAML frontmatter" % sid)
+            continue
+        meta, _, body = parts
+        name, desc = str(meta.get("name", "")), str(meta.get("description", ""))
+        if not re.fullmatch(r"[a-z0-9-]{1,64}", name) or name != str(sid):
+            issues.append("skill '%s' name must match its lowercase hyphenated directory" % sid)
+        if not desc:
+            issues.append("skill '%s' needs a trigger description" % sid)
+        elif len(desc.encode("utf-8")) > budget * 4:
+            issues.append("skill '%s' description exceeds ~%d-token budget" % (sid, budget))
+        extra = sorted(set(meta) - {"name", "description"})
+        if extra:
+            issues.append("skill '%s' has non-portable frontmatter: %s" % (sid, ", ".join(extra)))
+        if len(body.splitlines()) > 500:
+            issues.append("skill '%s' body exceeds 500 lines; move detail into references/" % sid)
+    return issues
 
 
 def emit_skills(cfg):
     """Emit each enabled skill into Claude and Codex skill trees (same SKILL.md format).
-    install.sh drops these into ~/.claude/skills and ~/.codex/skills so they load in any repo."""
+    install.sh drops these into ~/.claude/skills and ~/.agents/skills so they load in any repo."""
     n = 0
     for sid in (cfg.get("skills", {}) or {}).get("enabled", []) or []:
         content = _skill_body(cfg, sid)
         if content is None:
             continue
         for tool in ("claude", "codex"):
-            _write(os.path.join(BUILD_DIR, "skills", tool, str(sid), "SKILL.md"), content)
+            dest = os.path.join(BUILD_DIR, "skills", tool, str(sid))
+            _emit_skill_dir(dest, sid, content, include_openai=(tool == "codex"))
         n += 1
     return n
 
@@ -357,7 +417,11 @@ def emit_skills(cfg):
 def emit_project(cfg):
     """Generate repo-scoped harness artifacts into build/project/ for install.sh --project."""
     base = os.path.join(BUILD_DIR, "project", ".claude")
+    codex_agents = os.path.join(BUILD_DIR, "project", ".codex", "agents")
     n = {"commands": 0, "agents": 0, "skills": 0, "hooks": 0, "mcp": 0}
+    navigator = os.path.join(ROOT, "templates", "PROJECT_NAVIGATOR.md")
+    with open(navigator, encoding="utf-8") as f:
+        _write(os.path.join(BUILD_DIR, "project", "PROJECT_NAVIGATOR.md"), GEN_MD + "\n" + f.read())
     for name, c in ((cfg.get("commands", {}) or {}).get("commands", {}) or {}).items():
         _write(os.path.join(base, "commands", name + ".md"),
                "---\ndescription: %s\n---\n%s\n\n%s\n" % (c.get("description", ""), GEN_MD, c.get("body", "")))
@@ -365,11 +429,19 @@ def emit_project(cfg):
     for name, a in ((cfg.get("subagents", {}) or {}).get("subagents", {}) or {}).items():
         _write(os.path.join(base, "agents", name + ".md"),
                "---\nname: %s\ndescription: %s\n---\n%s\n\n%s\n" % (name, a.get("description", ""), GEN_MD, a.get("prompt", "")))
+        prompt = str(a.get("prompt", "")).replace('"""', '\\"""')
+        # No sandbox_mode pin: Codex picks its own sandbox (a pinned read-only sandbox
+        # dies on machines where bwrap is blocked); the read-only role contract lives in
+        # the instructions instead.
+        _write(os.path.join(codex_agents, name + ".toml"),
+               "# coder-ai-os:generated\nname = %s\ndescription = %s\n"
+               "developer_instructions = \"\"\"\n%s\n\"\"\"\n"
+               % (json.dumps(str(name)), json.dumps(str(a.get("description", ""))), prompt))
         n["agents"] += 1
     for sid in (cfg.get("skills", {}) or {}).get("enabled", []) or []:
         content = _skill_body(cfg, sid)
         if content is not None:
-            _write(os.path.join(base, "skills", str(sid), "SKILL.md"), content)
+            _emit_skill_dir(os.path.join(base, "skills", str(sid)), sid, content)
             n["skills"] += 1
     hks = (cfg.get("hooks", {}) or {}).get("hooks", {}) or {}
     if hks:
@@ -392,7 +464,7 @@ def emit_project(cfg):
                    json.dumps(settings, indent=2) + "\n")
     servers = (cfg.get("mcp", {}) or {}).get("servers", {}) or {}
     if servers:
-        lines = ["# MCP servers — `install.sh --with-codegraph` wires codegraph; others register manually.", ""]
+        lines = [GEN_MD, "# MCP servers — `install.sh --with-codegraph` wires codegraph; others register manually.", ""]
         for sid, s in servers.items():
             args = " ".join(str(x) for x in (s.get("args", []) or []))
             lines.append("- %s: `%s %s` -> %s" % (sid, s.get("command", ""), args, s.get("targets", [])))
@@ -403,9 +475,8 @@ def emit_project(cfg):
 
 def emit_commands(cfg):
     """Compile each command in config/commands.yaml into EVERY tool's native format, so the
-    same command triggers whether the user runs Claude, Codex, Gemini, or Cursor.
+    same command triggers on supported repository command surfaces.
       Claude  -> build/commands/claude/<name>.md   (frontmatter + body)
-      Codex   -> build/commands/codex/<name>.md    (custom prompt, invoked /prompts:<name>)
       Gemini  -> build/commands/gemini/<name>.toml  (description + prompt)
       Cursor  -> build/commands/cursor/<name>.md
     """
@@ -414,8 +485,6 @@ def emit_commands(cfg):
         desc, body = c.get("description", ""), c.get("body", "")
         _write(os.path.join(BUILD_DIR, "commands", "claude", name + ".md"),
                "---\ndescription: %s\n---\n%s\n\n%s\n" % (desc, GEN_MD, body))
-        _write(os.path.join(BUILD_DIR, "commands", "codex", name + ".md"),
-               "# %s\n%s\n\n%s\n" % (desc, GEN_MD, body))
         tprompt = body.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
         _write(os.path.join(BUILD_DIR, "commands", "gemini", name + ".toml"),
                '# coder-ai-os:generated\ndescription = "%s"\nprompt = """\n%s\n"""\n'
@@ -425,7 +494,20 @@ def emit_commands(cfg):
     return len(cmds)
 
 
+def config_problems(cfg):
+    probs = skill_problems(cfg)
+    v = cfg.get("user", {}).get("verbosity")
+    if str(v) not in ("low", "medium", "high"):
+        probs.append("user.verbosity %r is not one of low|medium|high" % (v,))
+    return probs
+
+
 def cmd_build(cfg):
+    issues = config_problems(cfg)
+    if issues:
+        for issue in issues:
+            print("  FAIL: " + issue, file=sys.stderr)
+        return 1
     os.makedirs(BUILD_DIR, exist_ok=True)
     for fname, body in compile_all(cfg).items():
         with open(os.path.join(BUILD_DIR, fname), "w", encoding="utf-8") as f:
@@ -436,17 +518,59 @@ def cmd_build(cfg):
     ns = emit_skills(cfg)
     print("  project artifacts -> build/project/  (%d commands, %d agents, %d skills, %d hooks, %d mcp)"
           % (n["commands"], n["agents"], n["skills"], n["hooks"], n["mcp"]))
-    print("  per-tool commands -> build/commands/{claude,codex,gemini,cursor}/  (%d each)" % nc)
+    print("  per-tool commands -> build/commands/{claude,gemini,cursor}/  (%d each)" % nc)
     print("  cross-tool skills -> build/skills/{claude,codex}/  (%d each)" % ns)
     print("done. install.sh injects global files; --project drops repo-scoped artifacts.")
     return 0
 
 
+def generated_tree_drift(cfg):
+    """Return generated build paths whose presence or content differs from a clean compile."""
+    global BUILD_DIR
+    actual_root, previous = BUILD_DIR, BUILD_DIR
+    with tempfile.TemporaryDirectory(prefix="coder-ai-os-build-") as expected_root:
+        try:
+            BUILD_DIR = expected_root
+            for fname, body in compile_all(cfg).items():
+                _write(os.path.join(BUILD_DIR, fname), body)
+            emit_project(cfg)
+            emit_commands(cfg)
+            emit_skills(cfg)
+        finally:
+            BUILD_DIR = previous
+
+        def files(root):
+            found = {}
+            if not os.path.isdir(root):
+                return found
+            for base, dirs, names in os.walk(root):
+                dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+                for name in sorted(names):
+                    path = os.path.join(base, name)
+                    rel = os.path.relpath(path, root)
+                    if os.path.islink(path):
+                        found[rel] = b"<symlink>"
+                        continue
+                    with open(path, "rb") as f:
+                        found[rel] = f.read()
+            return found
+
+        expected, actual = files(expected_root), files(actual_root)
+        return sorted(path for path in set(expected) | set(actual)
+                      if expected.get(path) != actual.get(path))
+
+
 def cmd_check(cfg, fail_on_drift=True):
+    issues = config_problems(cfg)
+    if issues:
+        for issue in issues:
+            print("  FAIL: " + issue)
+        return 1
     limit = int(cfg["tokens"].get("budget", {}).get("global_file_max_kb", 3)) * 1024
     codex_cap = int(cfg["tokens"].get("budget", {}).get("codex_total_max_kib", 32)) * 1024
     outputs = compile_all(cfg)
-    ref = compile_all(load_config(use_machine_overlay=False))  # committed build/ is defaults-only
+    ref_cfg = load_config(use_machine_overlay=False)  # committed build/ is defaults-only
+    ref = compile_all(ref_cfg)
     over = False
     drift = False
     print("Agent Compiler — status")
@@ -460,8 +584,13 @@ def cmd_check(cfg, fail_on_drift=True):
         built = os.path.join(BUILD_DIR, fname)
         if not os.path.exists(built) or open(built, encoding="utf-8").read() != ref.get(fname, body):
             drift = True
+    tree_drift = generated_tree_drift(ref_cfg)
+    drift = drift or bool(tree_drift)
     if drift:
         print("  DRIFT: build/ is missing or stale — run `bin/compile`.")
+        if tree_drift:
+            print("  generated tree differences: " + ", ".join(tree_drift[:8]) +
+                  (" ..." if len(tree_drift) > 8 else ""))
     if over:
         print("  FAIL: at least one output exceeds the global budget. Trim config/*.yaml.")
         return 1
@@ -499,9 +628,11 @@ def cmd_doctor():
     limit = int(tok.get("budget", {}).get("global_file_max_kb", 3)) * 1024
     codex_cap = int(tok.get("budget", {}).get("codex_total_max_kib", 32)) * 1024
     outputs = compile_all(cfg)
-    ref = compile_all(load_config(use_machine_overlay=False))  # committed build/ is defaults-only
+    ref_cfg = load_config(use_machine_overlay=False)  # committed build/ is defaults-only
+    ref = compile_all(ref_cfg)
 
     problems, conflicts, warns = [], [], []
+    problems.extend(config_problems(cfg))
     largest, drift = 0, False
     for fname, body in outputs.items():
         n = len(body.encode("utf-8"))
@@ -511,6 +642,8 @@ def cmd_doctor():
         built = os.path.join(BUILD_DIR, fname)
         if not os.path.exists(built) or open(built, encoding="utf-8").read() != ref.get(fname, body):
             drift = True
+    tree_drift = generated_tree_drift(ref_cfg)
+    drift = drift or bool(tree_drift)
 
     # conflicts
     if "max_tokens" in usr and usr.get("max_tokens") != tok.get("max_tokens"):
@@ -542,14 +675,11 @@ def cmd_doctor():
         dups += 1 if k in seen else 0
         seen.add(k)
 
-    # skills: enabled must have a SKILL.md; defined-but-not-enabled = unused
+    # skills: canonical directories not selected in config are reported as unused
     skl = cfg.get("skills", {}) or {}
     enabled = skl.get("enabled", []) or []
-    defined = (skl.get("skills", {}) or {})
-    missing_skill = [s for s in enabled if not os.path.exists(os.path.join(ROOT, "skills", str(s), "SKILL.md"))]
+    defined = [s for s in os.listdir(os.path.join(ROOT, "skills")) if os.path.isdir(os.path.join(ROOT, "skills", s))]
     unused = [s for s in defined if s not in enabled]
-    for s in missing_skill:
-        problems.append("skill '%s' enabled but skills/%s/SKILL.md missing" % (s, s))
 
     # context: estimate tokens (~bytes/4) vs the advisory global-instruction target
     ctx_budget = int((cfg.get("context", {}) or {}).get("budgets_tokens", {}).get("global_instruction", 0) or 0)

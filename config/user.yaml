@@ -2,10 +2,12 @@
 # the setup wizard or the AI intake writes a per-machine overlay (config/local.yaml)
 # that overrides it WITHOUT editing this shared block.
 experience: senior
-verbosity: low
+# low | medium | high — low: end-of-task report only; medium (default): + one-line intent
+# before the first action and a note at each phase change; high: currently same as medium.
+verbosity: medium
 graphs: true
 max_tokens: 500
-language: match-user
+language: english
 review_style: graph
 risk_tolerance: low
 # Optional profile — rendered as one compact line only when set (no tokens if empty).

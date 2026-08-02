@@ -6,16 +6,4 @@ enabled:
   - feature-development
   - api-change-review
   - monorepo-change
-skills:
-  debugging:
-    trigger: failing test · runtime error · unexpected behavior
-    load: skills/debugging/SKILL.md
-  feature-development:
-    trigger: new endpoint or component · multi-file feature
-    load: skills/feature-development/SKILL.md
-  api-change-review:
-    trigger: public API, schema, or contract change
-    load: skills/api-change-review/SKILL.md
-  monorepo-change:
-    trigger: monorepo change spanning packages · API/contract change affecting other packages
-    load: skills/monorepo-change/SKILL.md
+  - task-lifecycle

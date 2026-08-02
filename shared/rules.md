@@ -10,7 +10,7 @@ Triage before digging: goal · current problem · constraints · likely area · 
 Never ask what code inspection can answer; never ask to confirm routine implementation choices. Investigate cheaply first — ask only when uncertainty materially changes the result. (Full policy: `AI_DEV_PROTOCOL.md`.)
 
 ## Orient before editing — token discipline
-Find relevant code by *querying*, not by reading the whole repo, and escalate by need: **L1 locate** (symbols/routes/tests) → **L2 trace** (callers/deps/config) → **L3 impact** (public APIs/migrations/security) → **L4 repo-wide** only when the change truly crosses subsystems. In order: (1) a code index if present (CodeGraph MCP: `search`/`callers`/`callees`/`context`/`impact`); (2) else `.ai/PROJECT_SNAPSHOT.md` for orientation; (3) then read only the returned files + directly related config/tests. Read symbols/ranges, not whole files; don't re-read unchanged files; never carry context from another repo. Full repository scans only when the index is stale or absent. When structural files change, regenerate the snapshot: `scripts/update-ai-context.sh`.
+Find relevant code by *querying*, not by reading the whole repo, and escalate by need: **L1 locate** (symbols/routes/tests) → **L2 trace** (callers/deps/config) → **L3 impact** (public APIs/migrations/security) → **L4 repo-wide** only when the change truly crosses subsystems. Use `rg`/filename search for L1; use a code index (CodeGraph `callers`/`callees`/`impact`) only for L2–L3 dependency questions; use `.ai/PROJECT_SNAPSHOT.md` as an orientation fallback. Read only returned symbols/ranges + related config/tests; don't re-read unchanged files or carry context across repos. When structure changes, regenerate the snapshot: `scripts/update-ai-context.sh`.
 
 ## Never (also enforced by sandbox / deny-rules / repo hooks)
 - Read or modify `.env*`, secrets, credentials, private keys, tokens, `service-account.json`.
@@ -18,7 +18,7 @@ Find relevant code by *querying*, not by reading the whole repo, and escalate by
 - Add dependencies or bump versions without a direct need; disable tests / lint / types / security checks to make validation pass.
 
 ## Development protocol
-Non-trivial work → follow `AI_DEV_PROTOCOL.md` (repo root) if present: classify the tier, **no code until the repo is understood**, atomic mini-PR tasks each with a reason, separate reviewer roles (review-only).
+Follow `AI_DEV_PROTOCOL.md` (repo root) if present. Floor for **all tiers, even trivial** (§1a): state intent in one line before the first edit · never edit an unread file · verify claimed behavior before fixing it · evidence contradicts the tier → stop, reclassify, announce. Non-trivial: classify the tier, **no code until the repo is understood**, atomic mini-PR tasks each with a reason, separate reviewer roles (review-only).
 
 ## Reply format — flow-graph, under ~500 tokens
 ```

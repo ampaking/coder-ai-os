@@ -1,6 +1,147 @@
 # Changelog
 
 Notable changes to `coder-ai-os`. Dates are absolute (YYYY-MM-DD).
+## Unreleased
+
+- `coder-ai-os setup`/`sync` now re-sync the snapshot and atlas INDEX as their LAST step. Setup
+  writes agent files (`AGENTS.md`, `.claude/`, `.codex/`, …) after generating the first snapshot,
+  and the structural fingerprint counts untracked files — so a brand-new setup reported
+  "snapshot STALE" on its very first `--check`/`doctor` run, teaching agents to distrust a map
+  that was actually correct.
+- Default reply language is now `english` rather than `match-user`; set `user.language` in
+  `config/local.yaml` to reply in the language of the latest message instead.
+- Symbol indexes now mirror the repo's folder structure: `packages/user-api` →
+  `.ai/symbols/packages/user-api.tsv` (was flat `packages--user-api.tsv`). Real paths are
+  unique, so mirroring them keeps the collision-safety of the path-derived scheme while
+  reading naturally for humans and agents. `--symbols-all` GC auto-migrates: old flat
+  generated files are removed on the next sync, and a physical-path guard refuses writes
+  that a symlinked intermediate dir would redirect outside `.ai/symbols/`.
+- INDEX.md IS the root map: the repo root no longer gets a separate `root.md` — unclaimed
+  root-level files (dot-dir tooling excluded) appear as a section inside `INDEX.md`, which
+  in a clean monorepo simply doesn't exist. `--symbols .`/`--check` target INDEX; `--refresh`
+  folds root-level changes into it. Every generated map header now leads with QUERY
+  recipes (rg one-liner, sed section reads) so agents never load a whole map — a symbol
+  lookup costs 1 line, not a 12 KB file.
+- Code atlas: the symbol indexes are now a hierarchy of MARKDOWN maps — no more .tsv.
+  `.ai/symbols/INDEX.md` (L1: packages + manifest dependency mermaid) → `<unit>.md`
+  (L2: folder import graph with measured counts, folder table, root-file symbol tables)
+  → `<unit>/<folder>.md` (L3: file import graph + per-file name·kind·line tables; a
+  folder subtree with ≥8 owned files gets its own map, `MD_MIN_FILES` tunes it). Edges
+  come from PARSED IMPORTS (python absolute/relative, JS/TS relative + workspace names)
+  resolved against the repo file list — exact counts, verified against independently
+  measured fixtures (aiila user-api: api→use_cases = 155 imports). L1 lookup is
+  `rg -w '<name>' .ai/symbols/`. Old .tsv indexes and graph files GC automatically at
+  the next sync; `--baseline`/`--diff`/`--changed`/`--check` semantics carry over.
+- `--graph <dir>` now ENRICHES the unit's maps in place: used-by columns are word-match
+  CONFIRMED BY IMPORT EDGES (kills same-name noise), and unreferenced symbols are
+  classified test / entry (decorator above the def) / private before anything lands in
+  the unit map's "needs verification" list — never a bare "(unused)" claim.
+- Map regeneration now reports its DELTA: whenever a map is rewritten — by an AI
+  (`--refresh`) or a human (`--symbols`, `--symbols-all`) — a `Δ` line shows old vs new
+  (`symbols 54→55 (+1 −0: +name) · edges +1 −0`, weight changes count; up to 4 names
+  shown). Silent when unchanged or metadata-only; printed on stderr so the GC's
+  written-paths protocol on stdout stays clean.
+- New `--refresh [<dir>]`: the task-completion trigger — diffs the working tree vs git
+  HEAD, maps changed files to their owning units, regenerates exactly those maps +
+  INDEX, and prints the trace. Wired into the task-lifecycle skill (step 5) and the
+  always-loaded Orient guidance.
+- Indexer fixes: dot-directories (`.claude/`, `.lefthook/`) are no longer treated as
+  code units, and a nested manifest whose name can't resolve (stray `setup.py` deep in
+  another package) no longer fabricates a phantom unit.
+- Superseded within this release (never shipped): `--graph <dir>`: derives the unit's usage graph — which symbol is used where —
+  writing `<unit>.graph.tsv` (name → defined → uses, capped at 12 shown locations) and
+  `<unit>.graph.md` (mermaid: nodes grouped by defining file, each usage attributed to
+  its nearest enclosing definition, symbol→symbol edges prioritized under the 150-edge
+  cap, plus a "possibly unused" list). Heuristic word-match by design (imports/comments
+  count as usage, same names conflate, dunders skipped); on-demand only — never at sync
+  (5,570 symbols graph in ~1.7s). Orphaned graphs are GC'd when their unit's index goes.
+- Symbol ownership is now EXCLUSIVE: a unit's index covers only files no nested unit
+  claims, so each file appears in exactly one .tsv and `root.tsv` holds just the unclaimed
+  leftovers instead of re-indexing the entire repo (a real monorepo's root.tsv dropped from
+  22,697 rows to 0). Repo-wide L1 lookup is `rg -w '<name>' .ai/symbols/`; the .tsv headers
+  and the always-loaded Orient text teach the new read pattern.
+- Codex: no sandbox settings are written anywhere anymore, by owner decision — no
+  `sandbox_mode` in the defaults, profiles, or generated review-agent TOMLs; Codex picks
+  its own sandbox. `approval_policy = "on-failure"` lets it ask to retry a command when
+  its sandbox blocks one (Ubuntu 23.10+ blocks bubblewrap's user namespaces, so pinned
+  sandbox modes died with `bwrap: ... RTM_NEWADDR` before running anything). The interim
+  AppArmor helper script and the install/doctor sandbox warnings were removed with it.
+- Claude deny rules: dropped the `Write(...)` variants from `claude/permissions.json` —
+  Claude Code only matches `Edit(path)` rules for file-editing tools (Edit/Write/
+  NotebookEdit), so the `Write(...)` entries were silent no-ops that produced startup
+  warnings; the `Edit(...)` twins already enforce the block.
+- Setup/sync now auto-generates ALL unit symbol indexes (`--symbols-all`): every unit the
+  snapshot lists — manifest packages, bare dirs, source root, repo root — gets its
+  `.ai/symbols/<unit>.tsv` at sync time (empty units are legal, header-only).
+- `--symbols-all` garbage-collects orphaned indexes (renamed/removed units) so no stale map
+  survives to mislead an agent; only files carrying the generated header are touched.
+- Hardening from four-lens review: symbol index filenames are now path-derived and
+  collision-safe (`packages/api` → `packages--api.tsv`; two packages both named "api" can no
+  longer overwrite each other's index); `.ai`/`.ai/symbols`/`.baseline` symlink guards; doctor
+  runs the tool's own script copy (never repo-authored code); `--changed` no longer dies under
+  `set -e` when nothing changed; NUL-delimited xargs survives filenames with spaces;
+  `--symbols-all` indexes in-process (was one full `git ls-files` per unit); portable awk
+  lookup hint replaces `grep -P`.
+- Memory scope awareness: the snapshot header now declares whether `.ai/` is SHARED
+  (tracked — commit checkpoints with features), LOCAL-ONLY (git-ignored or `.git/info/exclude`
+  — never git-add, teammates can't see it), or untracked-so-far (human decides). Protocol §4's
+  "commit .ai/" rule is now conditional on this scope. Detected live per regeneration.
+- The always-loaded Orient section now teaches the symbol workflow directly: L1 lookup =
+  grep `.ai/symbols/<unit>.tsv` (units listed in the snapshot), track your own edits with
+  `--changed <dir>`, refresh stale indexes with `--symbols <dir>` — within the 3 KB budget.
+- `--changed` works from nested scopes inside a bigger git repo (`git diff --relative` +
+  cwd-relative `git show`) — previously subdir runs misreported files as removed.
+- New `--changed [<dir>]` mode: symbol-level diff of the working tree vs git HEAD — AI
+  triggers it per file/dir to see added/removed/moved functions with no saved baseline
+  (git is the baseline; body-only edits stay with `git diff`). Wired into task-lifecycle.
+- Nested-project support + tree-style flow graph: the snapshot detects the source root
+  (longest common source-file prefix), so wrapper layouts like `src/sat/backend/...` map
+  their real modules from any sync point; units keep full repo-relative paths so `--symbols`
+  commands stay copy-pasteable. The module flow now also renders as an indented tree with
+  `<- cycle` marks — architecture loops become visible instead of hidden in flat edge lists.
+- Per-unit symbol index (L1): `scripts/update-ai-context.sh --symbols <dir>` writes
+  `.ai/symbols/<unit>.tsv` (file→kind→name→line; locations only, never code content) for ANY
+  directory — manifest package, bare source dir (no pyproject/package.json needed), or repo
+  root — generated on demand per unit, never the whole app. Content fingerprint + `--check`
+  refuses stale line numbers; uses universal-ctags when installed, zero-dep regex fallback
+  otherwise (definitions only — call edges stay in the queryable code index). `--baseline` +
+  `--diff` give a task-boundary structural diff (+added/-removed/~moved) so out-of-scope or
+  unintended changes are caught mechanically; wired into the task-lifecycle, debugging, and
+  monorepo-change skills, with two-way links between snapshot rows and index headers.
+- Module-flow graph: the snapshot now renders a layered top-level import graph
+  (`[entry] api / [mid] services / [base] db` + counted edges) aggregated from import/use/
+  require lines — a human-readable architecture map agents orient from instead of reading
+  files. File-level by design; function/class callers/impact stay in the queryable code index.
+- Workspace-aware orientation: `scripts/update-ai-context.sh` now emits a heuristic monorepo
+  map (nested `package.json`/`Cargo.toml`/`pyproject.toml`/`go.mod`/… → package name + internal
+  deps) so agents pick the owning package without scanning, plus a structural path-list
+  fingerprint and a `--check` mode (fresh=0 / STALE=1) that agents and `coder-ai-os doctor` run
+  before trusting the map. `.ai/` meta files are excluded from project shape; untracked
+  non-ignored files now count. Still zero-dependency (bash + coreutils).
+- Verbosity is now behavioral, defaulting to `medium`: the compiler renders mid-task progress
+  narration (one-line intent before the first action + a note per phase change) at
+  `medium`/`high` and omits it at `low`; unknown values fail `--check`/`--doctor`/build.
+- Token/context visibility ships as harness UI, never model self-report: install merges a
+  Claude Code `statusLine` (live context %, additive, user's own wins) and a Codex
+  `[tui].status_line` (identifiers verified against codex-cli 0.144.4) via the existing
+  user-preserving idempotent TOML merge.
+- Understand-first floor (protocol §1a) — a gate no tier can skip, closing the misclassified
+  "simple task" failure mode: one-line intent before the first edit, never edit an unread file,
+  verify claimed behavior before fixing it, escalate the tier on contradicting evidence, and a
+  minimum observed validation even for trivial changes. Compiled pointer ships in all five
+  adapters; sync test asserts it renders.
+- Provider-native Claude/Codex architecture verified against current official docs: portable skills
+  compile to `.claude/skills` and `.agents/skills`; Codex read-only agents compile to
+  `.codex/agents`; obsolete Codex-only repair/prompts are retired.
+- Skills are now valid canonical Agent Skill bundles with strict name/description/token validation,
+  complete resource copying, Codex UI metadata, and a cross-provider `task-lifecycle` resume skill.
+- Setup and sync now seed a shared `.ai/PROJECT_NAVIGATOR.md` for unfamiliar projects. Claude,
+  Codex, and the other generated adapters use it to keep the relevant flow, connected files, AI
+  limits, task graph, and human decision points visible; refresh preserves maintained content.
+  It aligns intended outcomes before action and records expected/observed evidence, uncertainty,
+- Startup context remains under 3 KB; feature/epic investigation can use isolated read-only agents,
+  while writes remain serial and portable `CURRENT.md` checkpoints survive provider/model switches.
+
 
 ## [0.1.0] — 2026-07-11 — first public release
 ### Changed (hybrid: global behavior + per-repo config)
@@ -84,7 +225,7 @@ Notable changes to `coder-ai-os`. Dates are absolute (YYYY-MM-DD).
   reinforces any *existing* per-package `AGENTS.md`/`CLAUDE.md` with isolation guidance
   (augment-only — never creates surprise files).
 - Cross-tool skills: `skills/<id>/SKILL.md` now gets `name`+`description` frontmatter (for
-  discovery) and installs into `~/.claude/skills` **and** `~/.codex/skills` — same progressive
+  discovery) and installs into `~/.claude/skills` **and** `~/.agents/skills` — same progressive
   disclosure in both CLIs (was Claude-only).
 - Executable hooks: `config/hooks.yaml` Stop hooks compile to a real, firing
   `.claude/settings.json` (safe `prompt` type — "validate before done"); installed into a repo

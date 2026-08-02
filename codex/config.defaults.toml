@@ -1,0 +1,13 @@
+# Codex safety defaults. Existing user or project values always win during installation.
+# Apply globally:  install.sh --codex-safety-defaults
+# Applied to project config by:  coder-ai-os setup | coder-ai-os sync
+#
+# Codex has NO per-command deny-list; safety here = approval + the AGENTS.md rules.
+# No sandbox settings are written on purpose: Codex picks its own sandbox and finds its
+# way; `on-failure` lets it ask to retry a command whenever its sandbox blocks one.
+approval_policy = "on-failure"
+
+# Live token/context visibility in the TUI footer (harness-measured, never model-guessed).
+# Item identifiers verified against codex-cli 0.144.4; user status_line / [tui] always wins.
+[tui]
+status_line = ["model-with-reasoning", "git-branch", "context-remaining", "used-tokens"]

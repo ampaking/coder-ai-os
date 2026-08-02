@@ -10,13 +10,14 @@ Legend: ● done · ◐ partial · ○ missing.
 | Mechanism | Paper adoption | Coverage | Provided by |
 |---|---|---|---|
 | Context files | dominant, often sole | ● 5 of 5 tools | compiler → CLAUDE/AGENTS/GEMINI + Cursor/Copilot via `--project` |
-| Tool permissions | common | ● Claude deny-list + Codex sandbox | `claude/permissions.json`, `codex/config.autonomous.toml`, `config/safety.yaml` |
+| Tool permissions | common | ● Claude deny-list + Codex sandbox | `claude/permissions.json`, `codex/config.defaults.toml`, `config/safety.yaml` |
 | MCP servers | moderate | ● registry + auto-register | `config/mcp.yaml` → `--with-mcp` registers each per tool (claude mcp add · codex toml · gemini/cursor JSON); CodeGraph via `--with-codegraph` |
-| Hooks | rare | ● git + real Stop hook | git: `install_repo_hooks`; agent: `config/hooks.yaml` → firing `.claude/settings.json` Stop hook + `HOOKS.md` |
-| Skills | rare | ● lazy-loaded, Claude + Codex | `config/skills.yaml` + `skills/<id>/SKILL.md` (frontmatter) → `~/.claude/skills` + `~/.codex/skills` |
-| Subagents | very rare | ● generated | `config/subagents.yaml` → `.claude/agents/` |
-| Slash commands | rare | ● generated, all 4 CLIs | `config/commands.yaml` → Claude/Codex-prompts/Gemini-TOML/Cursor |
-| Memory lifecycle | emerging | ● policy + convention | `config/memory.yaml` → `.ai/memory/` |
+| Hooks | rare | ● agent Stop hook | `config/hooks.yaml` → `.claude/settings.json` Stop hook + `HOOKS.md`; no Git-hook mutation |
+| Skills | rare | ● lazy-loaded, Claude + Codex | `config/skills.yaml` + `skills/<id>/SKILL.md` (frontmatter) → `~/.claude/skills` + `~/.agents/skills` |
+| Subagents | very rare | ● generated | `config/subagents.yaml` → Claude `.claude/agents/` + Codex `.codex/agents/` |
+| Task commands | rare | ● native where repo-scoped | `config/commands.yaml` → Claude/Gemini/Cursor; Codex uses `AGENTS.md` + protocol |
+| Memory lifecycle | emerging | ● policy + convention | `config/memory.yaml` → maintained `.ai/PROJECT_NAVIGATOR.md` + resumable `.ai/memory/` |
+| Status display | not in paper | ● harness UI, not model text | install ships Claude `statusLine` (live context %) + Codex `[tui].status_line` (context/tokens); user values win. Models cannot introspect token counts — visibility is a display concern, paired with `verbosity: medium` progress narration |
 
 **Finding we act on:** advanced mechanisms are rare because they're *hard to configure*, not
 low-value. `coder-ai-os` compiles all of them from one kernel — the differentiator. The
@@ -31,12 +32,35 @@ raise cost ~20% (arXiv:2602.11988, 2601.20404). Resolution, and our core philoso
 > **Don't optimize the instruction file. Optimize the harness.**
 
 Keep the always-loaded block small (budget-enforced <3 KB); push depth into the protocol,
-the snapshot, and the code index — retrieved on demand.
+the snapshot, shared project navigator, and code index — retrieved on demand. The navigator joins
+intent, relevant file flow, AI limits, atomic tasks, human decisions, and evidence-based mistake recovery without mapping unrelated code.
 
 ## Status
-All 8 mechanisms and all 7 engines are covered. Language layering
-(`config/profiles/<lang>.yaml` merged by `user.languages`) is in; full
-global→repo→task layering and settings.json hook auto-merge are the next depth passes.
+All 8 paper mechanisms and all 7 engines are covered, plus one harness addition beyond the
+paper: status display (live context/token visibility as harness UI). Language layering
+(`config/profiles/<lang>.yaml` merged by `user.languages`) and idempotent settings hook merging are
+in; full global→repo→task configuration layering and comparable task telemetry remain future depth.
+
+## OpenAI Engineering transfer audit
+
+The Engineering newsroom contains both reusable agent-harness practices and OpenAI service
+infrastructure. coder-ai-os adopts the practices that belong in a portable local harness:
+
+- **Implemented:** repository knowledge as the system of record; small always-loaded guidance;
+  progressive-disclosure skills; query-first code maps; durable task checkpoints; explicit agent
+  loops; independent read-heavy subagents; atomic validation/review; provider adapters; generated
+  atlas garbage collection; additive prompt-only validation hooks.
+- **Intentionally bounded:** memory improves only through reviewed Markdown updates, never
+  unreviewed self-modification; architecture maps and reviewers expose boundary violations while
+  project-native linters/tests remain the enforcement authority; browser, logs, metrics, and live
+  external data are optional MCP/app integrations rather than assumed global access.
+- **Not a harness concern:** MRC networking, WebRTC voice delivery, Responses API WebSockets and
+  containers, PostgreSQL scaling, and product credit/rate-limit systems. Codex App Server becomes
+  relevant only if coder-ai-os later ships a rich client or remote agent service.
+
+This boundary prevents copying product-specific infrastructure into a configuration compiler while
+preserving the transferable reliability lessons. Claims about token, time, or task-success gains
+remain unquantified until comparable task telemetry exists.
 
 ## References & thanks
 

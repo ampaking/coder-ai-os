@@ -64,7 +64,7 @@ echo "1/3 · About you"
 ask_choice EXPERIENCE "  How experienced are you" senior senior junior
 ask_choice LANGUAGE   "  Reply language"          match-user match-user english
 echo "2/3 · How replies should look"
-ask_choice VERBOSITY  "  Verbosity"     low low medium high
+ask_choice VERBOSITY  "  Verbosity"     medium low medium high
 ask_choice REPLYFMT   "  Reply format"  flow-graph flow-graph prose minimal
 ask_value  MAXTOK     "  Max reply tokens (the end-of-task review is exempt)" 500
 echo "3/3 · How much process"
@@ -101,7 +101,7 @@ echo
 ask_yn APPLYNOW "Apply this to your agents now?" y
 
 if [ "$APPLYNOW" = y ]; then
-  [ "$CODEXDEF" = y ]  && APPLY_FLAGS+=(--codex-default-autonomous)
+  [ "$CODEXDEF" = y ]  && APPLY_FLAGS+=(--codex-safety-defaults)
   [ "$CODEGRAPH" = y ] && APPLY_FLAGS+=(--with-codegraph)
   echo; "$REPO_DIR/install.sh" "${APPLY_FLAGS[@]}"
   echo; echo "✓ Done — every agent now works your way. Check it: coder-ai-os verify"

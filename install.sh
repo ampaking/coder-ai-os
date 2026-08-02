@@ -5,6 +5,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ACTIVE_PROJECT=""
+CODEX_TMP=""
 DRY_RUN=0
 CODEX_DEFAULT=0
 WITH_CODEGRAPH=0
@@ -12,14 +14,14 @@ WITH_MCP=0
 STATUS=0
 YES=0
 PROJECT=""
-usage(){ echo "usage: install.sh [--init] [--yes] [--dry-run] [--status] [--codex-default-autonomous] [--with-codegraph] [--with-mcp] [--project <repo-path>]"; }
+usage(){ echo "usage: install.sh [--init] [--yes] [--dry-run] [--status] [--codex-safety-defaults] [--with-codegraph] [--with-mcp] [--project <repo-path>]"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
     --yes) YES=1 ;;
     --init) exec "$REPO_DIR/bin/setup" ;;
     --status) STATUS=1 ;;
-    --codex-default-autonomous) CODEX_DEFAULT=1 ;;
+    --codex-safety-defaults|--codex-default-autonomous) CODEX_DEFAULT=1 ;;
     --with-codegraph) WITH_CODEGRAPH=1 ;;
     --with-mcp) WITH_MCP=1 ;;
     --project) shift; PROJECT="${1:-}"; [ -n "$PROJECT" ] || { echo "--project needs a path" >&2; exit 2; } ;;
@@ -42,11 +44,22 @@ TOML_BEGIN_OLD='# >>> ai-agent-os:managed >>>'
 TOML_END_OLD='# <<< ai-agent-os:managed <<<'
 
 log(){ printf '  %s\n' "$*"; }
+reject_symlink(){
+  local cur="$1"
+  while [ -n "$ACTIVE_PROJECT" ] && [ "$cur" != "$ACTIVE_PROJECT" ] && [ "$cur" != / ]; do
+    [ ! -L "$cur" ] || { log "ERROR: refusing symlink path: $cur"; return 1; }
+    cur="$(dirname "$cur")"
+  done
+  [ ! -L "$1" ] || { log "ERROR: refusing symlink target: $1"; return 1; }
+}
 
 # OVERLAY_BUILD — set by compile_step to a temp dir holding this machine's PERSONALIZED
 # build (config/local.yaml applied). Empty => fall back to the committed defaults-only build/.
 OVERLAY_BUILD=""
-cleanup_overlay_build(){ [ -n "$OVERLAY_BUILD" ] && rm -rf "$OVERLAY_BUILD"; }
+cleanup_overlay_build(){
+  [ -z "$OVERLAY_BUILD" ] || rm -rf "$OVERLAY_BUILD"
+  [ -z "$CODEX_TMP" ] || rm -rf "$CODEX_TMP"
+}
 trap cleanup_overlay_build EXIT
 
 # compile_step — render this machine's personalized build into a TEMP dir when python3 is
@@ -78,10 +91,23 @@ tool_body(){
 # (carries the coder-ai-os:generated marker). Never overwrites a user's own same-named file.
 safe_cp(){
   local src="$1" dest="$2"
-  if [ -f "$dest" ] && ! grep -q 'coder-ai-os:generated' "$dest" 2>/dev/null; then
+  reject_symlink "$dest" || return 1
+  if [ -f "$dest" ] && ! grep -Eq 'coder-ai-os:generated|coder-ai-os engineering defaults \(generated\)|(update-ai-context|discover-standards)\.sh —' "$dest" 2>/dev/null; then
     log "  kept your existing $(basename "$dest") — not overwritten (rename to keep both)"; return
   fi
   mkdir -p "$(dirname "$dest")"; cp "$src" "$dest"
+}
+# seed_cp <src-file> <dest-file> — install shared project state only when absent.
+# Unlike generated commands, maintained navigator content must survive every later sync.
+seed_cp(){
+  local src="$1" dest="$2"
+  reject_symlink "$dest" || return 1
+  if [ -e "$dest" ]; then
+    [ -f "$dest" ] || { log "ERROR: expected a regular file: $dest"; return 1; }
+    log "  kept maintained $(basename "$dest")"; return
+  fi
+  mkdir -p "$(dirname "$dest")"; cp "$src" "$dest"
+  log "seeded shared human-AI map -> $dest"
 }
 # safe_cp_tree <src-dir> <dest-dir> — safe_cp every file, preserving structure.
 safe_cp_tree(){
@@ -107,8 +133,16 @@ install_cmds(){
 # legacy-marker region is also stripped, so a project rename never duplicates blocks.
 inject(){
   local target="$1" content="$2" begin="$3" end="$4" lbegin="${5:-$3}" lend="${6:-$4}"
+  reject_symlink "$target" || return 1
   if [ "$DRY_RUN" = 1 ]; then log "would update managed block -> $target"; return; fi
   mkdir -p "$(dirname "$target")"; touch "$target"
+  if ! awk -v b="$begin" -v e="$end" -v lb="$lbegin" -v le="$lend" '
+    $0==b || $0==lb {if(open) bad=1; open=1; next}
+    $0==e || $0==le {if(!open) bad=1; open=0; next}
+    END {exit(bad || open ? 1 : 0)}
+  ' "$target"; then
+    log "ERROR: unbalanced coder-ai-os markers in $target; left unchanged"; return 1
+  fi
   local tmp; tmp="$(mktemp)"
   awk -v b="$begin" -v e="$end" -v lb="$lbegin" -v le="$lend" '
     $0==b || $0==lb {skip=1; next} $0==e || $0==le {skip=0; next} skip!=1{print}
@@ -121,6 +155,68 @@ inject(){
   } >> "$target"
   rm -f "$tmp"
   log "updated -> $target"
+}
+
+# write_codex_config <target> — add current Codex safety defaults without replacing user-owned
+# top-level values or unrelated TOML. The managed block is prepended because top-level TOML keys
+# written after a table header would belong to that table. Existing values always win.
+write_codex_config(){
+  local target="$1" source="$REPO_DIR/codex/config.defaults.toml" dir work clean block out key line found=0
+  if [ "$DRY_RUN" = 1 ]; then log "would merge Codex defaults -> $target (existing values win)"; return; fi
+  reject_symlink "$target" || return 1
+  if [ -f "$target" ] && grep -Eq "\"\"\"|'''|=[[:space:]]*\\[[^]]*$|=[[:space:]]*\\{[^}]*$" "$target"; then
+    log "ERROR: ambiguous multiline TOML in $target; left unchanged"; return 1
+  fi
+  dir="$(dirname "$target")"; mkdir -p "$dir"; [ -f "$target" ] || : > "$target"
+  work="$(mktemp -d "$dir/.coder-ai-os.toml.XXXXXX")" || return 1; CODEX_TMP="$work"
+  clean="$work/clean"; block="$work/block"; out="$work/out"; : > "$block"
+  if ! awk -v b="$TOML_BEGIN" -v e="$TOML_END" -v lb="$TOML_BEGIN_OLD" -v le="$TOML_END_OLD" '
+    $0==b || $0==lb {if(open) bad=1; open=1; next}
+    $0==e || $0==le {if(!open) bad=1; open=0; next}
+    END {exit(bad || open ? 1 : 0)}
+  ' "$target"; then
+    log "ERROR: unbalanced coder-ai-os markers in $target; left unchanged"
+    rm -rf "$work"; return 1
+  fi
+  awk -v b="$TOML_BEGIN" -v e="$TOML_END" -v lb="$TOML_BEGIN_OLD" -v le="$TOML_END_OLD" '
+    $0==b || $0==lb {skip=1; next} $0==e || $0==le {skip=0; next} skip!=1{print}
+  ' "$target" > "$clean"
+  for key in approval_policy sandbox_mode; do
+    if awk -v k="$key" '
+      BEGIN {top=1; pat="^[[:space:]]*(\"" k "\"|\047" k "\047|" k ")[[:space:]]*="}
+      /^[[:space:]]*\[/ {top=0}
+      top!=0 && $0 ~ pat {found=1}
+      END {exit(found ? 0 : 1)}
+    ' "$clean"; then
+      log "Codex: kept existing $key in $target"; continue
+    fi
+    line="$(awk -v k="$key" '$0 ~ "^[[:space:]]*" k "[[:space:]]*=" {print; exit}' "$source")"
+    [ -n "$line" ] && { printf '%s\n' "$line" >> "$block"; found=1; }
+  done
+  # [tui].status_line rides in its own appended managed region: tables cannot join the
+  # prepended block (user top-level keys after a table header would be captured by it).
+  # A user-owned status_line or explicit [tui] table wins — we skip to avoid duplicates.
+  local tui_block="$work/tui"
+  awk '/^\[tui\]/{t=1} t' "$source" > "$tui_block"
+  if [ -s "$tui_block" ]; then
+    if grep -Eq '^[[:space:]]*(\[tui\]|status_line[[:space:]]*=)' "$clean"; then
+      log "Codex: kept existing [tui]/status_line in $target"
+    else
+      { printf '%s\n' "$TOML_BEGIN"; cat "$tui_block"; printf '%s\n' "$TOML_END"; } >> "$clean"
+    fi
+  fi
+  if [ "$found" = 1 ]; then
+    { printf '%s\n' "$TOML_BEGIN"; cat "$block"; printf '%s\n' "$TOML_END"; cat "$clean"; } > "$out"
+  else cat "$clean" > "$out"; fi
+  local mode=600
+  if [ -f "$target" ]; then mode="$(stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null || echo 600)"; fi
+  chmod "$mode" "$out"
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import tomllib' >/dev/null 2>&1; then
+    python3 -c 'import sys,tomllib; tomllib.load(open(sys.argv[1],"rb"))' "$out" || { log "ERROR: merged TOML is invalid; left unchanged"; rm -rf "$work"; CODEX_TMP=""; return 1; }
+  fi
+  if mv "$out" "$target"; then
+    rm -rf "$work"; CODEX_TMP=""; log "merged Codex defaults -> $target (preserved existing values)"
+  else rm -rf "$work"; CODEX_TMP=""; return 1; fi
 }
 
 merge_claude_settings(){
@@ -137,8 +233,16 @@ merge_claude_settings(){
     | .permissions.allow = (((.permissions.allow // []) + $add[0].permissions.allow) | unique)
     | .permissions.deny  = (((.permissions.deny  // []) + $add[0].permissions.deny)  | unique)
     | .skipAutoPermissionPrompt = (.skipAutoPermissionPrompt // true)
+    | .statusLine = (.statusLine // {"type": "command", "command": "~/.claude/statusline.sh"})
   ' "$target" > "$tmp" && mv "$tmp" "$target"
-  log "merged permissions -> $target (kept your defaultMode; unioned guardrails)"
+  # Ship the default script only when the user has none — never overwrite a custom one.
+  # -L catches a dangling symlink (-e follows it), so we never write through a planted link.
+  if [ ! -e "$HOME/.claude/statusline.sh" ] && [ ! -L "$HOME/.claude/statusline.sh" ]; then
+    cp "$REPO_DIR/claude/statusline.sh" "$HOME/.claude/statusline.sh" \
+      && chmod 755 "$HOME/.claude/statusline.sh" \
+      && log "installed default status line -> ~/.claude/statusline.sh (live context %)"
+  fi
+  log "merged permissions -> $target (kept your defaultMode; unioned guardrails; statusLine if unset)"
 }
 
 # register_codegraph — delegate MCP wiring to CodeGraph's own installer, which
@@ -211,44 +315,6 @@ register_mcp(){
   done
 }
 
-# install_repo_hooks <repo> — self-contained snapshot auto-refresh that lives in
-# the repo's OWN .git/hooks. After this, the repo maintains its snapshot with zero
-# dependency on coder-ai-os. Marker-guarded + idempotent; appends to existing
-# hooks without clobbering them. The generator is deterministic and diff-stable, so
-# these hooks are a no-op unless the repo's structure actually changed.
-install_repo_hooks(){
-  local proj="$1" hooks
-  hooks="$(git -C "$proj" rev-parse --git-path hooks 2>/dev/null || true)"
-  if [ -z "$hooks" ]; then log "SKIP hooks: $proj is not a git repo — regenerate manually with scripts/update-ai-context.sh"; return 0; fi
-  case "$hooks" in /*) : ;; *) hooks="$proj/$hooks" ;; esac
-  mkdir -p "$hooks"
-  local marker='# >>> coder-ai-os:snapshot >>>'
-  local body
-  body=$(cat <<'HOOK'
-# >>> coder-ai-os:snapshot >>>
-# Refresh .ai/PROJECT_SNAPSHOT.md when repo structure may have changed.
-# Deterministic + diff-stable: a no-op unless the structure actually changed.
-__root=$(git rev-parse --show-toplevel 2>/dev/null) || __root=""
-if [ -n "$__root" ] && [ -x "$__root/scripts/update-ai-context.sh" ]; then
-  ( cd "$__root" && bash scripts/update-ai-context.sh >/dev/null 2>&1 || true )
-fi
-if [ -n "$__root" ] && [ -x "$__root/scripts/discover-standards.sh" ]; then
-  ( cd "$__root" && bash scripts/discover-standards.sh >/dev/null 2>&1 || true )
-fi
-# <<< coder-ai-os:snapshot <<<
-HOOK
-)
-  local h f
-  for h in post-merge post-checkout post-rewrite post-commit; do
-    f="$hooks/$h"
-    if [ -f "$f" ] && grep -qF "$marker" "$f" 2>/dev/null; then continue; fi
-    if [ -f "$f" ]; then printf '\n%s\n' "$body" >> "$f"
-    else printf '#!/usr/bin/env bash\n%s\n' "$body" > "$f"; fi
-    chmod +x "$f"
-  done
-  log "installed snapshot auto-refresh hooks -> $hooks (post-merge/checkout/rewrite/commit)"
-}
-
 # scaffold_monorepo <repo> — in a monorepo, reinforce per-package isolation. Augments only
 # packages that ALREADY have an AGENTS.md/CLAUDE.md (never creates surprise files) with a
 # marker-guarded pointer to the root harness + the monorepo-change skill.
@@ -316,7 +382,7 @@ _sha(){ if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256s
 # into App B: if the fingerprint doesn't match this repo, the generated cache is rebuilt.
 write_fingerprint(){
   local p="$1" f root remote id gh rh; f="$1/.coder-ai/identity.json"
-  root="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)"; [ -n "$root" ] || root="$(cd "$p" && pwd)"
+  root="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null || true)"; [ -n "$root" ] || root="$(cd "$p" && pwd)"
   remote="$(git -C "$p" config --get remote.origin.url 2>/dev/null || echo none)"
   id="$(basename "$root")"; gh="sha256:$(_sha "$root")"; rh="sha256:$(_sha "$remote")"
   if [ -f "$f" ] && ! grep -q "\"git_root_hash\": \"$gh\"" "$f" 2>/dev/null; then
@@ -346,6 +412,7 @@ write_project_block(){
 # .claude/settings.json (project-scoped, additive; keeps your defaultMode and other keys). Needs jq.
 write_project_settings(){
   local p="$1" f tmp; f="$p/.claude/settings.json"
+  reject_symlink "$f" || return 1
   command -v jq >/dev/null 2>&1 || { log "settings: jq not found — skipping $p/.claude/settings.json"; return; }
   mkdir -p "$p/.claude"; [ -f "$f" ] || echo '{}' > "$f"
   tmp="$(mktemp)"
@@ -359,32 +426,76 @@ write_project_settings(){
   [ -f "$hookf" ] || hookf="$REPO_DIR/build/project/settings.hooks.json"
   if [ -f "$hookf" ]; then
     tmp="$(mktemp)"
-    jq --slurpfile hook "$hookf" '.hooks = (.hooks // $hook[0].hooks)' "$f" > "$tmp" && mv "$tmp" "$f"
+    jq --slurpfile hook "$hookf" '
+      .hooks = (.hooks // {})
+      | reduce ($hook[0].hooks | to_entries[]) as $event (.;
+          .hooks[$event.key] = reduce $event.value[] as $candidate
+            (.hooks[$event.key] // [];
+              if index($candidate) == null then . + [$candidate] else . end))
+    ' "$f" > "$tmp" && mv "$tmp" "$f"
   fi
   log "wrote $p/.claude/settings.json (guardrails + Stop hook, merged)"
 }
 
+# Remove only snapshot-hook regions installed by older coder-ai-os releases.
+remove_legacy_snapshot_hooks(){
+  local p="$1" hook hooks cur begin='# >>> coder-ai-os:snapshot >>>' end='# <<< coder-ai-os:snapshot <<<'
+  hooks="$(git -C "$p" rev-parse --git-path hooks 2>/dev/null || true)"
+  [ -n "$hooks" ] || hooks="$p/.git/hooks"
+  case "$hooks" in /*) ;; *) hooks="$p/$hooks";; esac
+  [ -d "$hooks" ] || return 0
+  cur="$hooks"
+  while [ "$cur" != / ]; do
+    [ ! -L "$cur" ] || { log "ERROR: refusing symlink hook path: $cur"; return 1; }
+    cur="$(dirname "$cur")"
+  done
+  for hook in post-merge post-checkout post-rewrite post-commit; do
+    local f="$hooks/$hook" begins ends tmp mode
+    [ -f "$f" ] || continue
+    reject_symlink "$f" || return 1
+    begins="$(grep -cFx "$begin" "$f" || true)"
+    ends="$(grep -cFx "$end" "$f" || true)"
+    [ "$begins" -gt 0 ] || continue
+    if [ "$begins" -ne "$ends" ]; then
+      log "ERROR: malformed legacy snapshot markers; left unchanged: $f"
+      return 1
+    fi
+    mode="$(stat -c '%a' "$f" 2>/dev/null || stat -f '%Lp' "$f" 2>/dev/null || echo 755)"
+    tmp="$(mktemp "$hooks/.legacy-hook.XXXXXX")" || return 1
+    awk -v begin="$begin" -v end="$end" '
+      $0 == begin { managed=1; next }
+      $0 == end   { managed=0; next }
+      !managed
+    ' "$f" > "$tmp"
+    chmod "$mode" "$tmp"; mv "$tmp" "$f"
+    log "removed retired managed snapshot hook block -> $f"
+  done
+}
+
 # drop_project <repo-path> — ONE-SHOT per-repo bootstrap ("install and forget").
 # Copies the dev protocol + snapshot generator (self-contained, checked in),
-# generates the first snapshot, installs auto-refresh git hooks, and — if CodeGraph
-# is on PATH — builds the local query index. Auto-detects CodeGraph (no flag needed);
+# generates the first snapshot and — if CodeGraph is on PATH — builds the local query index. Auto-detects CodeGraph (no flag needed);
 # ongoing updates then happen inside the working repo, never here.
 drop_project(){
   local proj="$1"
   if [ ! -d "$proj" ]; then log "SKIP --project: not a directory: $proj"; return 1; fi
+  local guarded
+  for guarded in .coder-ai .ai .claude .codex .cursor .gemini .github scripts AGENTS.md CLAUDE.md GEMINI.md AI_DEV_PROTOCOL.md; do
+    reject_symlink "$proj/$guarded" || return 1
+  done
   local have_cg=0; command -v codegraph >/dev/null 2>&1 && have_cg=1
   if [ "$DRY_RUN" = 1 ]; then
     log "would copy AI_DEV_PROTOCOL.md + scripts/update-ai-context.sh -> $proj/"
     log "would generate $proj/.ai/PROJECT_SNAPSHOT.md"
-    log "would install snapshot auto-refresh git hooks in $proj/.git/hooks"
     log "would write your block -> $proj/{AGENTS,CLAUDE,GEMINI}.md + .claude/settings.json (guardrails+hook)"
-    log "would write Cursor rule + Copilot instructions + .cursor/commands + .codex/skills + .gemini/commands into $proj"
+    log "would write Cursor rule + Copilot instructions + .cursor/commands + .codex/{config.toml,skills} + .gemini/commands into $proj"
     log "would write .claude/{commands,agents,skills} into $proj"
-    log "would discover code standards -> .ai/standards.md and seed .ai/memory/{INDEX,CURRENT}.md"
+    log "would discover code standards -> .ai/standards.md, project navigator, and resumable memory"
     if [ "$have_cg" = 1 ]; then log "would run 'codegraph init' in $proj (CodeGraph detected)"
     else log "would SKIP index (CodeGraph not on PATH; run './install.sh --with-codegraph' once to add it)"; fi
     return
   fi
+  remove_legacy_snapshot_hooks "$proj"
   # .coder-ai workspace: this repo's config + isolation fingerprint, then compile the
   # repo-merged block into .coder-ai/generated/ (falls back to the global build/ if no python3).
   ensure_project_yaml "$proj"
@@ -396,29 +507,50 @@ drop_project(){
   fi
   local SRC="$proj/.coder-ai/generated"; [ -f "$SRC/AGENTS.md" ] || SRC="$REPO_DIR/build"
 
-  cp "$REPO_DIR/protocol/AI_DEV_PROTOCOL.md" "$proj/AI_DEV_PROTOCOL.md"
+  local protocol="$proj/AI_DEV_PROTOCOL.md" legacy="$proj/.ai/legacy/AI_DEV_PROTOCOL.pre-managed.md" ptmp pmode=644
+  reject_symlink "$protocol" || return 1
+  if [ -f "$protocol" ] && ! grep -qF "$MD_BEGIN" "$protocol" \
+     && cmp -s "$protocol" "$REPO_DIR/protocol/AI_DEV_PROTOCOL.md"; then
+    mkdir -p "$proj/.ai/legacy"; reject_symlink "$legacy" || return 1
+    [ ! -e "$legacy" ] || { log "ERROR: legacy protocol backup already exists: $legacy"; return 1; }
+    cp -p "$protocol" "$legacy"
+    pmode="$(stat -c '%a' "$protocol" 2>/dev/null || stat -f '%Lp' "$protocol" 2>/dev/null || echo 644)"
+    ptmp="$(mktemp "$proj/.AI_DEV_PROTOCOL.XXXXXX")" || return 1
+    { printf '%s\n' "$MD_BEGIN"; cat "$REPO_DIR/protocol/AI_DEV_PROTOCOL.md"; printf '%s\n' "$MD_END"; } > "$ptmp"
+    chmod "$pmode" "$ptmp"; mv "$ptmp" "$protocol"
+    log "migrated legacy protocol; preserved old copy -> $legacy"
+  else
+    inject "$protocol" "$REPO_DIR/protocol/AI_DEV_PROTOCOL.md" "$MD_BEGIN" "$MD_END" "$MD_BEGIN_OLD" "$MD_END_OLD"
+  fi
   mkdir -p "$proj/scripts" "$proj/.ai"
-  cp "$REPO_DIR/scripts/update-ai-context.sh" "$proj/scripts/update-ai-context.sh"
+  safe_cp "$REPO_DIR/scripts/update-ai-context.sh" "$proj/scripts/update-ai-context.sh"
   chmod +x "$proj/scripts/update-ai-context.sh"
   log "dropped AI_DEV_PROTOCOL.md + scripts/update-ai-context.sh -> $proj/"
   # Generate the first snapshot from the project root (script uses $(pwd)).
   ( cd "$proj" && bash scripts/update-ai-context.sh ) \
     && log "generated $proj/.ai/PROJECT_SNAPSHOT.md" \
     || log "SKIP snapshot (generator returned non-zero)"
+  # Symbol indexes for the synced scope (L1): sync IS the scope declaration, so every
+  # unit the snapshot lists gets its index (function/class -> file:line), root included.
+  ( cd "$proj" && bash scripts/update-ai-context.sh --symbols-all ) >/dev/null 2>&1 \
+    && log "generated $proj/.ai/symbols/ code atlas ($(find "$proj/.ai/symbols" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ') .md maps: INDEX -> unit -> folder, import graphs + symbol tables; each file mapped once)" \
+    || log "SKIP symbol indexes (generator returned non-zero)"
   # Learn the repo's own code style so agents write matching code.
-  cp "$REPO_DIR/scripts/discover-standards.sh" "$proj/scripts/discover-standards.sh"
+  safe_cp "$REPO_DIR/scripts/discover-standards.sh" "$proj/scripts/discover-standards.sh"
   chmod +x "$proj/scripts/discover-standards.sh"
   ( cd "$proj" && bash scripts/discover-standards.sh ) \
     && log "discovered code standards -> $proj/.ai/standards.md" \
     || log "SKIP standards (generator returned non-zero)"
-  install_repo_hooks "$proj"
+  if [ -f "$SRC/project/PROJECT_NAVIGATOR.md" ]; then
+    seed_cp "$SRC/project/PROJECT_NAVIGATOR.md" "$proj/.ai/PROJECT_NAVIGATOR.md"
+  fi
   # Your personal block, written into THIS repo's own agent files (Claude/Codex/Gemini read them).
   write_project_block "$proj"
   # Repo-scoped adapters: Cursor rule (our own dedicated file) + Copilot instructions
   # (marker block, so an existing file is preserved).
   if [ -f "$SRC/cursor.mdc" ]; then
     mkdir -p "$proj/.cursor/rules"
-    cp "$SRC/cursor.mdc" "$proj/.cursor/rules/coder-ai-os.mdc"
+    safe_cp "$SRC/cursor.mdc" "$proj/.cursor/rules/coder-ai-os.mdc"
     log "wrote $proj/.cursor/rules/coder-ai-os.mdc"
   fi
   if [ -f "$SRC/copilot-instructions.md" ]; then
@@ -436,15 +568,26 @@ drop_project(){
     for f in "$SRC/commands/cursor/"*; do [ -f "$f" ] && safe_cp "$f" "$proj/.cursor/commands/$(basename "$f")"; done
     log "wrote .cursor/commands into $proj (kept any of your own same-named)"
   fi
-  # Project-scoped skills/commands for the other tools (Codex reads .codex/skills; Gemini .gemini/commands).
-  [ -d "$SRC/skills/codex" ] && { safe_cp_tree "$SRC/skills/codex" "$proj/.codex/skills"; log "wrote .codex/skills into $proj"; }
+  # Project-scoped skills/commands for the other tools (Codex reads .agents/skills; Gemini .gemini/commands).
+  write_codex_config "$proj/.codex/config.toml"
+  [ -d "$SRC/skills/codex" ] && { safe_cp_tree "$SRC/skills/codex" "$proj/.agents/skills"; log "wrote .agents/skills into $proj"; }
+  [ -d "$SRC/project/.codex" ] && { safe_cp_tree "$SRC/project/.codex" "$proj/.codex"; log "wrote .codex/agents into $proj"; }
   if [ -d "$SRC/commands/gemini" ]; then
     for f in "$SRC/commands/gemini/"*; do [ -f "$f" ] && safe_cp "$f" "$proj/.gemini/commands/$(basename "$f")"; done
     log "wrote .gemini/commands into $proj (kept any of your own same-named)"
   fi
   # Guardrails (deny-rules) + Stop hook -> the repo's own .claude/settings.json (project-scoped).
   write_project_settings "$proj"
-  [ -f "$SRC/project/MCP.md" ] && cp "$SRC/project/MCP.md" "$proj/.ai/MCP.md"
+  if [ -f "$SRC/project/MCP.md" ]; then
+    local mcp_target="$proj/.ai/MCP.md" mcp_legacy
+    mcp_legacy="$(mktemp)"
+    sed '1{/coder-ai-os:generated/d;}' "$SRC/project/MCP.md" > "$mcp_legacy"
+    if [ -f "$mcp_target" ] && cmp -s "$mcp_target" "$mcp_legacy"; then
+      reject_symlink "$mcp_target" || { rm -f "$mcp_legacy"; return 1; }
+      cp "$SRC/project/MCP.md" "$mcp_target"; log "migrated generated MCP notes -> $mcp_target"
+    else safe_cp "$SRC/project/MCP.md" "$mcp_target"; fi
+    rm -f "$mcp_legacy"
+  fi
   # Portable, cross-agent memory (markdown, git-committed — no DB). Seed templates if absent.
   mkdir -p "$proj/.ai/memory"
   [ -f "$proj/.ai/memory/INDEX.md" ] || cat > "$proj/.ai/memory/INDEX.md" <<'EOF'
@@ -456,11 +599,28 @@ EOF
   [ -f "$proj/.ai/memory/CURRENT.md" ] || cat > "$proj/.ai/memory/CURRENT.md" <<'EOF'
 # Current task — where we left off (any agent resumes from here)
 
-Goal:
-In progress:
-Next:
-Blockers:
-Last validation run:
+## Goal
+
+## Original intent
+
+## Definition of done
+
+## Active epic/task
+
+## In progress
+
+## Next
+
+## Decisions
+
+## Files changed
+
+## Blockers
+
+## Validation evidence (command + observed)
+
+## Updated
+
 EOF
   log "seeded .ai/memory/{INDEX,CURRENT}.md (cross-agent, resumable)"
   scaffold_monorepo "$proj"
@@ -471,6 +631,14 @@ EOF
   else
     log "no CodeGraph index (optional) — snapshot is the fallback; add it with './install.sh --with-codegraph'"
   fi
+  # Setup writes its last batch of files (AGENTS/CLAUDE/GEMINI.md, .claude/, .codex/, .cursor/,
+  # .github/, .codegraph/) AFTER the first snapshot above, and the structural fingerprint now
+  # counts untracked files — so re-sync the snapshot and the atlas INDEX once everything is on
+  # disk. Without this, a brand-new setup reports "snapshot STALE" on its very first
+  # --check / doctor run, and agents distrust a map that is actually correct.
+  ( cd "$proj" && bash scripts/update-ai-context.sh && bash scripts/update-ai-context.sh --symbols . ) >/dev/null 2>&1 \
+    && log "re-synced snapshot + atlas INDEX (fresh for --check / doctor)" \
+    || log "SKIP final re-sync (generator returned non-zero)"
 }
 
 # main — the install flow. Wrapped so the script can be sourced (e.g. for tests)
@@ -488,6 +656,7 @@ fi
 # `--project` writes THIS repo's config into the repo. Nothing global happens here.
 if [ -n "$PROJECT" ]; then
   [ -d "$PROJECT" ] || { echo "coder-ai-os: no such directory: $PROJECT" >&2; exit 2; }
+  PROJECT="$(cd "$PROJECT" && pwd -P)"; ACTIVE_PROJECT="$PROJECT"
   if [ "$DRY_RUN" = 1 ]; then echo "coder-ai-os: setting up $PROJECT (dry-run)"; else echo "coder-ai-os: setting up $PROJECT"; fi
   drop_project "$PROJECT"
   cat <<EOF
@@ -510,11 +679,12 @@ compile_step
 inject "$HOME/.claude/CLAUDE.md" "$(tool_body CLAUDE.md)" "$MD_BEGIN" "$MD_END" "$MD_BEGIN_OLD" "$MD_END_OLD"
 inject "$HOME/.codex/AGENTS.md"  "$(tool_body AGENTS.md)" "$MD_BEGIN" "$MD_END" "$MD_BEGIN_OLD" "$MD_END_OLD"
 inject "$HOME/.gemini/GEMINI.md" "$(tool_body GEMINI.md)" "$MD_BEGIN" "$MD_END" "$MD_BEGIN_OLD" "$MD_END_OLD"
+[ "$CODEX_DEFAULT" = 1 ] && write_codex_config "$HOME/.codex/config.toml"
 install_cmds claude "$HOME/.claude/commands" Claude
 install_cmds gemini "$HOME/.gemini/commands"  Gemini
 install_skills(){ local src="$REPO_DIR/build/skills/$1" dest="$2"; [ -d "$src" ] || return 0; if [ "$DRY_RUN" = 1 ]; then log "would install $3 skills -> $dest"; return; fi; safe_cp_tree "$src" "$dest" && log "installed $3 skills -> $dest"; }
 install_skills claude "$HOME/.claude/skills" Claude
-install_skills codex  "$HOME/.codex/skills"  Codex
+install_skills codex  "$HOME/.agents/skills"  Codex
 merge_claude_settings
 
 # 6. Make the `coder-ai-os` command runnable (the README/docs use it by name).

@@ -45,8 +45,8 @@ The kernel. Every tool file is compiled from these — edit here, then run `bin/
 | key | type | values |
 |---|---|---|
 | `experience` | str | `senior` \| `junior` |
-| `verbosity` | str | `low` \| `medium` \| `high` |
-| `language` | str | `match-user` \| `english` |
+| `verbosity` | str | `low` \| `medium` (default) \| `high` — behavioral: `medium`/`high` render mid-task progress narration (one-line intent before the first action + a note per phase change); `low` renders the end-of-task report only. Unknown values fail `--check`. |
+| `language` | str | `english` (default) \| `match-user`; another language requires an explicit request |
 | `max_tokens` | int | — |
 | `review_style`, `risk_tolerance` | str | — |
 | `languages` | list[str] | e.g. `[Python, TypeScript]` — renders a Profile line only when set |
@@ -56,12 +56,12 @@ The kernel. Every tool file is compiled from these — edit here, then run `bin/
 | File | Emits | Notes |
 |---|---|---|
 | `context.yaml` | Harness/Context section + doctor budgets | `initial_file_limit`, `budgets_tokens.*` (advisory) |
-| `skills.yaml` | skill trigger summaries; `.claude/skills/` | `enabled[]`, `lazy_load`, `skills.<id>.{trigger,load}`; full text in `skills/<id>/SKILL.md` |
-| `commands.yaml` | `.claude/commands/<name>.md` | `commands.<name>.{description,body}` |
-| `subagents.yaml` | `.claude/agents/<name>.md` | `subagents.<name>.{description,prompt}` (review-only) |
-| `hooks.yaml` | `.claude/HOOKS.md` (advisory) | `hooks.<id>.{event,action}` — never auto-runs commands |
+| `skills.yaml` | select portable skills for `.claude/skills/` + `.agents/skills/` | `enabled[]`, `lazy_load`; each `skills/<id>/SKILL.md` owns and validates its trigger metadata |
+| `commands.yaml` | native Claude/Gemini/Cursor commands; Codex follows `AGENTS.md` + `AI_DEV_PROTOCOL.md` | `commands.<name>.{description,body}` |
+| `subagents.yaml` | Claude `.claude/agents/<name>.md` + Codex `.codex/agents/<name>.toml` | read-only exploration/review roles; parent model inherited |
+| `hooks.yaml` | `.claude/HOOKS.md` + safe prompt-only Stop hook | `hooks.<id>.{event,action}` — user hooks are preserved and merged idempotently; arbitrary commands are never auto-run |
 | `mcp.yaml` | `.ai/MCP.md` + doctor listing | `servers.<id>.{command,args,targets,install}` |
-| `memory.yaml` | Memory line + `.ai/memory/` convention | `location`, `capture`, `prune`, `load` |
+| `memory.yaml` | Memory + shared project navigator convention | `location`, `index`, `resume`, `navigator`, `capture`, `prune`, `load` |
 | `profiles/<lang>.yaml` | merged when `user.languages` includes `<lang>` | e.g. sets `user.coding.*` |
 
 ### `user.yaml` `coding` (rendered into the Profile line when set)

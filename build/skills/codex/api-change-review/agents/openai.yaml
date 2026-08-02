@@ -1,0 +1,6 @@
+interface:
+  display_name: "Review API Change"
+  short_description: "Trace compatibility and consumer impact"
+  default_prompt: "Use $api-change-review to audit this contract change and all affected consumers."
+policy:
+  allow_implicit_invocation: true
