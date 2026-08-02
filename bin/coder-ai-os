@@ -4,8 +4,8 @@
 # converge on the SAME canonical overlay (config/local.yaml) → deterministic output.
 #
 #   coder-ai-os install                   configure your agents globally (once per machine)
-#   coder-ai-os setup [dir]               set up a project (default: current dir) — rules,
-#                                         commands, skills, standards, memory
+#   coder-ai-os setup [dir]               set up a new project
+#   coder-ai-os sync [dir]                safely refresh every agent in an existing project
 #   coder-ai-os init                      personalize your profile (wizard, or --ai claude|codex)
 #   coder-ai-os doctor                    sizes + Codex 32KiB budget + drift + health
 #   coder-ai-os verify                    what each agent CLI actually loads
@@ -68,6 +68,7 @@ cmd_diff(){
 }
 
 cmd_verify(){
+  local strict="${1:-0}" missing=0
   echo "coder-ai-os verify — what each agent CLI actually loads"
   local pair tool f
   for pair in "Claude:$HOME/.claude/CLAUDE.md" "Codex:$HOME/.codex/AGENTS.md" "Gemini:$HOME/.gemini/GEMINI.md"; do
@@ -75,8 +76,8 @@ cmd_verify(){
     if [ -f "$f" ] && grep -q 'coder-ai-os:managed' "$f"; then echo "  $tool  ● block present"
     else echo "  $tool  ○ not installed  ($f)"; fi
   done
-  echo "  commands  claude=$(ls "$HOME/.claude/commands" 2>/dev/null | wc -l | tr -d ' ')  codex=$(ls "$HOME/.codex/prompts" 2>/dev/null | wc -l | tr -d ' ')  gemini=$(ls "$HOME/.gemini/commands" 2>/dev/null | wc -l | tr -d ' ')"
-  echo "  skills    claude=$(ls "$HOME/.claude/skills" 2>/dev/null | wc -l | tr -d ' ')  codex=$(ls "$HOME/.codex/skills" 2>/dev/null | wc -l | tr -d ' ')"
+  echo "  commands  claude=$(ls "$HOME/.claude/commands" 2>/dev/null | wc -l | tr -d ' ')  gemini=$(ls "$HOME/.gemini/commands" 2>/dev/null | wc -l | tr -d ' ')"
+  echo "  skills    claude=$(ls "$HOME/.claude/skills" 2>/dev/null | wc -l | tr -d ' ')  codex=$(ls "$HOME/.agents/skills" 2>/dev/null | wc -l | tr -d ' ')"
   if command -v codex >/dev/null 2>&1; then
     if codex --print-instructions 2>/dev/null | grep -q 'coder-ai-os:managed'; then
       echo "  codex --print-instructions  ● Codex confirms it loads our block"
@@ -84,12 +85,32 @@ cmd_verify(){
   fi
   echo "  --- this repo (project-scoped artifacts from --project): $PWD ---"
   local p
-  for p in .cursor/rules .cursor/commands .github/copilot-instructions.md \
-           .claude/commands .claude/skills .ai/standards.md .ai/memory/INDEX.md; do
-    if [ -e "$PWD/$p" ]; then echo "    ● $p"; else echo "    ○ $p"; fi
+  for p in AGENTS.md CLAUDE.md GEMINI.md AI_DEV_PROTOCOL.md \
+           .cursor/rules/coder-ai-os.mdc .cursor/commands/task.md \
+           .github/copilot-instructions.md .claude/settings.json .claude/commands/task.md \
+           .claude/agents/reviewer.md .claude/agents/security.md \
+           .claude/agents/performance.md .claude/agents/architecture.md \
+           .codex/agents/explorer.toml .codex/agents/reviewer.toml \
+           .codex/config.toml .agents/skills/debugging/SKILL.md .gemini/commands/task.toml \
+           .ai/standards.md .ai/PROJECT_NAVIGATOR.md \
+           .ai/memory/INDEX.md .ai/memory/CURRENT.md; do
+    if [ -e "$PWD/$p" ]; then echo "    ● $p"; else echo "    ○ $p"; missing=$((missing+1)); fi
   done
   echo "  (Claude/Codex/Gemini read your PERSONAL block from ~ in every repo — see the top"
   echo "   section; the project files above are the repo-scoped extras from 'install.sh --project'.)"
+  [ "$strict" = 0 ] || [ "$missing" = 0 ]
+}
+
+cmd_doctor(){
+  need python3
+  python3 "$REPO_DIR/bin/compile" --doctor
+  # Orientation freshness for the repo we're standing in (warning only, never fails doctor).
+  # Run the TOOL'S OWN copy, never the repo's: doctor in a hostile clone must not execute
+  # attacker-authored repo scripts.
+  if [ -f .ai/PROJECT_SNAPSHOT.md ]; then
+    bash "$REPO_DIR/scripts/update-ai-context.sh" --check || true
+  fi
+  cmd_verify 1
 }
 
 cmd_setup(){  # set up the current (or given) project in place
@@ -102,9 +123,10 @@ cmd_setup(){  # set up the current (or given) project in place
 case "${1:-help}" in
   install)     shift; exec "$REPO_DIR/install.sh" --yes "$@" ;;
   setup)       shift; cmd_setup "$@" ;;
+  sync)        shift; cmd_setup "$@" ;;
   init)        shift; cmd_init "$@" ;;
   compile)     need python3; exec python3 "$REPO_DIR/bin/compile" ;;
-  doctor)      need python3; exec python3 "$REPO_DIR/bin/compile" --doctor ;;
+  doctor)      cmd_doctor ;;
   verify)      cmd_verify ;;
   diff)        cmd_diff ;;
   profile)     shift; cmd_profile "$@" ;;
