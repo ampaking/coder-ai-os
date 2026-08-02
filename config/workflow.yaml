@@ -2,6 +2,10 @@
 planning: true
 atomic_tasks: true
 self_review: true
+delegation:
+  min_tier: feature
+  mode: independent read-only exploration and review only
+  writes: serial in the main task
 architecture_review: false
 protocol_file: AI_DEV_PROTOCOL.md
 clarify:
@@ -9,6 +13,6 @@ clarify:
   ask_before_large_scan: true
 orient:
   strategy: query-first
-  levels: L1 locate -> L2 trace -> L3 impact -> L4 repo-wide (escalate only on evidence)
-  index: CodeGraph MCP (search/callers/callees/context/impact)
+  levels: L1 locate -> L2 trace -> L3 impact -> L4 repo-wide
+  index: CodeGraph only for L2-L3 callers/impact
   snapshot: .ai/PROJECT_SNAPSHOT.md

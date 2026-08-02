@@ -1,6 +1,6 @@
 # CONTEXT engine — retrieval policy + per-layer token targets (reported by doctor).
 # Token targets are advisory (the hard gate is tokens.budget in KB); doctor flags HIGH.
-retrieval_order: request -> need? -> search -> retrieve -> summarize -> continue
+retrieval_order: request -> rg locate -> dependency trace if needed -> retrieve narrow ranges -> summarize -> continue
 full_repository_scan: false
 reuse_discovered_context: true
 initial_file_limit: 5
