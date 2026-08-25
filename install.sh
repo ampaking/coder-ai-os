@@ -491,6 +491,7 @@ drop_project(){
     log "would write Cursor rule + Copilot instructions + .cursor/commands + .codex/{config.toml,skills} + .gemini/commands into $proj"
     log "would write .claude/{commands,agents,skills} into $proj"
     log "would discover code standards -> .ai/standards.md, project navigator, and resumable memory"
+    log "would detect UI capabilities and seed .coder-ai/val without overwriting user config"
     if [ "$have_cg" = 1 ]; then log "would run 'codegraph init' in $proj (CodeGraph detected)"
     else log "would SKIP index (CodeGraph not on PATH; run './install.sh --with-codegraph' once to add it)"; fi
     return
@@ -500,6 +501,11 @@ drop_project(){
   # repo-merged block into .coder-ai/generated/ (falls back to the global build/ if no python3).
   ensure_project_yaml "$proj"
   write_fingerprint "$proj"
+  if [ -x "$REPO_DIR/val/project-init" ] && command -v jq >/dev/null 2>&1; then
+    "$REPO_DIR/val/project-init" "$proj" | while IFS= read -r line; do log "$line"; done
+  else
+    log "SKIP VAL project detection (runtime or jq unavailable)"
+  fi
   if command -v python3 >/dev/null 2>&1 && [ -x "$REPO_DIR/bin/compile" ]; then
     python3 "$REPO_DIR/bin/compile" --project "$proj" >/dev/null 2>&1 \
       && log "compiled this repo -> $proj/.coder-ai/generated/" \
@@ -687,13 +693,27 @@ install_skills claude "$HOME/.claude/skills" Claude
 install_skills codex  "$HOME/.agents/skills"  Codex
 merge_claude_settings
 
-# 6. Make the `coder-ai-os` command runnable (the README/docs use it by name).
-if [ "$DRY_RUN" = 0 ] && ! command -v coder-ai-os >/dev/null 2>&1; then
-  if mkdir -p "$HOME/.local/bin" 2>/dev/null && ln -sf "$REPO_DIR/bin/coder-ai-os" "$HOME/.local/bin/coder-ai-os" 2>/dev/null; then
-    log "linked the 'coder-ai-os' command -> ~/.local/bin"
+# 6. Make the CLIs runnable (the README/docs and project-local VAL wrapper use them by name).
+link_cli(){
+  local source="$1" destination="$2" name="$3"
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    if [ -L "$destination" ] && [ "$destination" -ef "$source" ]; then
+      log "kept existing '$name' link -> $destination"
+    else
+      log "kept user-owned command -> $destination"
+    fi
+    return 0
+  fi
+  ln -s "$source" "$destination"
+  log "linked '$name' command -> $destination"
+}
+if [ "$DRY_RUN" = 0 ]; then
+  if mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+    link_cli "$REPO_DIR/bin/coder-ai-os" "$HOME/.local/bin/coder-ai-os" coder-ai-os
+    link_cli "$REPO_DIR/val/val" "$HOME/.local/bin/val" val
     case ":$PATH:" in *":$HOME/.local/bin:"*) : ;; *) log "  add ~/.local/bin to PATH:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
   else
-    log "tip: run the CLI as ./bin/coder-ai-os, or add it to PATH:  export PATH=\"$REPO_DIR/bin:\$PATH\""
+    log "tip: run the CLIs from $REPO_DIR/bin and $REPO_DIR/val, or add ~/.local/bin to PATH"
   fi
 fi
 

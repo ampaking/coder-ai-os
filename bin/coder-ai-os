@@ -8,6 +8,7 @@
 #   coder-ai-os sync [dir]                safely refresh every agent in an existing project
 #   coder-ai-os init                      personalize your profile (wizard, or --ai claude|codex)
 #   coder-ai-os doctor                    sizes + Codex 32KiB budget + drift + health
+#   coder-ai-os val <command>             run Visual Autonomy Loop in the current repo
 #   coder-ai-os verify                    what each agent CLI actually loads
 #   coder-ai-os compile / diff / profile show
 set -euo pipefail
@@ -92,6 +93,7 @@ cmd_verify(){
            .claude/agents/performance.md .claude/agents/architecture.md \
            .codex/agents/explorer.toml .codex/agents/reviewer.toml \
            .codex/config.toml .agents/skills/debugging/SKILL.md .gemini/commands/task.toml \
+           .agents/skills/val-fix/SKILL.md .coder-ai/val/run .coder-ai/val/SETUP.md \
            .ai/standards.md .ai/PROJECT_NAVIGATOR.md \
            .ai/memory/INDEX.md .ai/memory/CURRENT.md; do
     if [ -e "$PWD/$p" ]; then echo "    ● $p"; else echo "    ○ $p"; missing=$((missing+1)); fi
@@ -124,6 +126,7 @@ case "${1:-help}" in
   install)     shift; exec "$REPO_DIR/install.sh" --yes "$@" ;;
   setup)       shift; cmd_setup "$@" ;;
   sync)        shift; cmd_setup "$@" ;;
+  val)         shift; exec "$REPO_DIR/val/val" "$@" ;;
   init)        shift; cmd_init "$@" ;;
   compile)     need python3; exec python3 "$REPO_DIR/bin/compile" ;;
   doctor)      cmd_doctor ;;

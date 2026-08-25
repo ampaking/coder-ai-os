@@ -106,11 +106,24 @@ grep -q '^## Mistake detection and recovery$' "$fresh/.ai/PROJECT_NAVIGATOR.md" 
 grep -q '^## Definition of done$' "$fresh/.ai/memory/CURRENT.md" || fail 'checkpoint lacks definition of done'
 [ -f "$fresh/.ai/symbols/INDEX.md" ] || fail 'setup did not generate root atlas index'
 grep -q '^## Validation evidence (command + observed)$' "$fresh/.ai/memory/CURRENT.md" || fail 'checkpoint lacks validation evidence'
+[ -x "$fresh/.coder-ai/val/run" ] || fail 'setup did not install the project-local VAL wrapper'
+[ -f "$fresh/.agents/skills/val-fix/SKILL.md" ] || fail 'setup did not install the automatic VAL skill'
 home="$TMP/home"
 mkdir -p "$home"
 HOME="$home" "$ROOT/install.sh" --yes --codex-safety-defaults >/dev/null
 assert_count 1 '^approval_policy[[:space:]]*=[[:space:]]*"on-failure"$' "$home/.codex/config.toml"
 assert_count 0 '^sandbox_mode[[:space:]]*=' "$home/.codex/config.toml"
+[ -L "$home/.local/bin/coder-ai-os" ] || fail 'global coder-ai-os command link missing'
+[ -L "$home/.local/bin/val" ] || fail 'global VAL command link missing'
+
+owned_home="$TMP/owned-cli-home"
+mkdir -p "$owned_home/.local/bin"
+printf '%s\n' '#!/bin/sh' 'echo user-val' > "$owned_home/.local/bin/val"
+chmod 755 "$owned_home/.local/bin/val"
+owned_val_before="$(cksum "$owned_home/.local/bin/val")"
+HOME="$owned_home" "$ROOT/install.sh" --yes >/dev/null
+[ ! -L "$owned_home/.local/bin/val" ] || fail 'user-owned val command was replaced with a symlink'
+[ "$(cksum "$owned_home/.local/bin/val")" = "$owned_val_before" ] || fail 'user-owned val command contents changed'
 
 # Claude statusLine: merged when absent + default script installed executable; user's own wins.
 if command -v jq >/dev/null 2>&1; then
@@ -136,6 +149,8 @@ if command -v jq >/dev/null 2>&1; then
   sync_repo "$hook_repo"
   jq -e '.hooks.Stop | length == 2' "$hook_repo/.claude/settings.json" >/dev/null \
     || fail 'generated Stop hook was not merged with the user Stop hook'
+  jq -e '.hooks.PostToolUse | any(.[]; any(.hooks[]; .prompt | contains("watchGlobs")))' \
+    "$hook_repo/.claude/settings.json" >/dev/null || fail 'VAL UI-change hook was not installed'
   jq -e '.hooks.Stop | any(.[]; any(.hooks[]; .prompt == "user stop hook"))' \
     "$hook_repo/.claude/settings.json" >/dev/null || fail 'user Stop hook was replaced'
   hook_first="$(cksum "$hook_repo/.claude/settings.json")"

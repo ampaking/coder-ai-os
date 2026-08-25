@@ -57,6 +57,7 @@ weakened.
 - **See Token Use Live** — install ships Claude Code and Codex status lines (context % / token counters, harness-measured); your own statusline config always wins
 - **Reports Your Way** — every task ends with a goal review in your reply format (flow-graph, prose, or minimal); the final review isn't clipped by the token budget
 - **Verify & Budget** — a small, budget-enforced instruction block; prove what every CLI actually loads with one command
+- **Close the Visual Loop** — VAL automatically captures deterministic responsive screenshots after UI diffs, runs accessibility/layout/pixel checks, applies allowlisted fixes, and emits one evidence-linked report without installing anything in the application repo
 
 ## What's new
 
@@ -165,6 +166,51 @@ Docs, architecture, config schema, and the research behind it 👉
 [Development protocol](protocol/AI_DEV_PROTOCOL.md)
 
 Confirm everything is wired: `./install.sh --status` and `coder-ai-os verify`.
+
+## Visual Autonomy Loop (VAL)
+
+`coder-ai-os setup` and `sync` inspect the target repository for UI signals and add a small
+`.coder-ai/val/` runtime configuration, setup guide, and wrapper. Existing VAL configuration is
+never overwritten. The global installer links the `val` command; Playwright, axe-core, and
+pixelmatch stay in VAL's pinned Docker image or isolated user cache—nothing is added to the
+application's package manifest, lockfile, Python environment, or vendor directory.
+
+```sh
+cd ~/your-app
+coder-ai-os setup
+# Later, refresh generated integration files with: coder-ai-os sync
+./.coder-ai/val/run doctor
+./.coder-ai/val/run run --task pricing-card --prompt "Make pricing cards stack below 768px"
+# equivalent: coder-ai-os val run --task pricing-card
+```
+
+Detection supports package scripts regardless of Node/TypeScript age, Django, Rails, Laravel,
+static HTML, Docker, and Compose. The generic `node` driver name means “run the configured serve
+command”; it is not a Node dependency. For an already hosted application, set `env` to `remote`,
+set its absolute `url`, and leave the remote process read-only. Edit `.coder-ai/val/config.json`
+when automatic detection cannot know a service, port, route, or command.
+
+For Claude Code, the installed project `PostToolUse` prompt checks edited paths against
+`watchGlobs` and instructs the agent to run the loop as an isolated validation task. Other supported
+agents receive the same behavior through the installed VAL skills when their skill dispatcher
+recognizes a UI change. The current UI request is passed through `--prompt` for checklist extraction.
+A run produces `.coder-ai/val/runs/<task>/manifest.json`, round evidence,
+`final/shots/`, and `final/report.md`. Exit codes are `0` green, `1` remaining findings/manual
+criteria, `2` capped/escalated with `BLOCKED.md`, and `3` infrastructure failure. Baselines are
+human-controlled and are promoted only with `val baseline promote --run <task>` after review.
+
+Authentication is off by default. Configured fill values must be exact environment placeholders
+such as `${VAL_USER}` and `${VAL_PASS}`; literal credentials are rejected. VAL masks password
+fields in login evidence, saves state under `.coder-ai/val/` with mode `0600`, and attempts login
+at most twice. For MFA/captcha, run `val auth --manual`; VAL opens a local headed browser, waits
+for `successCheck`, and reuses the saved state afterward. Unattended login failures return exit `3`
+instead of risking an account lockout.
+For OAuth or external identity-provider redirects, list the exact trusted origins in
+`auth.allowedOrigins`; all other third-party requests remain blocked for deterministic captures.
+
+VAL requires Bash 4+, `jq`, `curl`, `awk`, and `git`; Docker is preferred for browser isolation,
+with local `npm`/`npx` cache fallback. Windows is supported through WSL or Git Bash, not native
+Command Prompt or PowerShell process management.
 
 ## Make it yours
 
