@@ -7,3 +7,6 @@ hooks:
   before_finish:
     event: Stop
     action: remind to run the test suite before reporting done
+  val_after_ui_change:
+    event: PostToolUse
+    action: after editing a file, inspect .coder-ai/val/config.json watchGlobs; when the edited path matches, run VAL as an isolated validation task with the current UI request as --prompt and return only manifest.summary plus the report path

@@ -7,3 +7,8 @@ enabled:
   - api-change-review
   - monorepo-change
   - task-lifecycle
+  - val-capture
+  - val-verify
+  - val-judge
+  - val-fix
+  - val-report

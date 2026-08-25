@@ -453,13 +453,19 @@ def emit_project(cfg):
         # Real, SAFE executable hook: a Stop prompt hook (no command execution) that enforces
         # "validate before done". Written outside the .claude bundle so --project installs it
         # without clobbering an existing settings.json.
-        stop = [h for h in hks.values() if "stop" in str(h.get("event", "")).lower()]
-        if stop:
-            prompts = [{"type": "prompt",
-                        "prompt": str(h.get("action", "")) + " — confirm lint/typecheck/tests "
-                        "ran for changed code and report the observed result; if validation is "
-                        "pending and code changed, keep working."} for h in stop]
-            settings = {"hooks": {"Stop": [{"hooks": prompts}]}}
+        executable = [h for hid, h in hks.items()
+                      if "stop" in str(h.get("event", "")).lower() or hid == "val_after_ui_change"]
+        if executable:
+            settings = {"hooks": {}}
+            for hook in executable:
+                event = str(hook.get("event", ""))
+                prompt = str(hook.get("action", ""))
+                if event.lower() == "stop":
+                    prompt += (" — confirm lint/typecheck/tests ran for changed code and report "
+                               "the observed result; if validation is pending and code changed, "
+                               "keep working.")
+                settings["hooks"].setdefault(event, []).append(
+                    {"hooks": [{"type": "prompt", "prompt": prompt}]})
             _write(os.path.join(BUILD_DIR, "project", "settings.hooks.json"),
                    json.dumps(settings, indent=2) + "\n")
     servers = (cfg.get("mcp", {}) or {}).get("servers", {}) or {}
