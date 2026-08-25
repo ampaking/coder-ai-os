@@ -1,0 +1,18 @@
+{
+  "env": "auto",
+  "browserMode": "auto",
+  "serve": "pnpm dev",
+  "portFlag": "env",
+  "url": "http://localhost:${PORT}",
+  "healthPath": "/",
+  "readyTimeoutMs": 60000,
+  "reuseExisting": true,
+  "routes": ["/", "/pricing"],
+  "viewports": [[375, 812], [768, 1024], [1440, 900]],
+  "themes": ["light", "dark"],
+  "restartOn": ["package.json", "*lock*", "*.config.*", ".env"],
+  "watchGlobs": ["**/*.{tsx,jsx,vue,svelte,css,scss,html,twig,erb,blade.php}"],
+  "maxShots": 40,
+  "container": {"service": null, "port": null, "image": null},
+  "auth": null
+}
