@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+PROJECT="${1:-.}"
+PROJECT="$(cd "$PROJECT" && pwd -P)"
+STATE_DIR="$PROJECT/.coder-ai/val"
+CONFIG_FILE="$STATE_DIR/config.json"
+GUIDE_FILE="$STATE_DIR/SETUP.md"
+RUN_FILE="$STATE_DIR/run"
+IGNORE_FILE="$STATE_DIR/.gitignore"
+DETECTED_KIND='none'
+DETECTED_SERVE=''
+DETECTED_ENV='auto'
+DETECTED_PORT_FLAG='env'
+DETECTION_DETAIL='No supported UI workflow was detected.'
+DOLLAR='$'
+
+fail() {
+  printf 'VAL setup: %s\n' "$*" >&2
+  exit 3
+}
+
+[ ! -L "$PROJECT/.coder-ai" ] || fail 'refusing symlink: .coder-ai'
+[ ! -L "$STATE_DIR" ] || fail 'refusing symlink: .coder-ai/val'
+command -v jq >/dev/null 2>&1 || fail 'jq is required for automatic VAL project detection'
+
+has_ui_files() {
+  find "$PROJECT" \
+    \( -name .git -o -name node_modules -o -name vendor -o -name .coder-ai -o -name .ai \) -prune -o \
+    -type f \( -name '*.html' -o -name '*.htm' -o -name '*.jsx' -o -name '*.tsx' -o -name '*.vue' -o -name '*.svelte' -o -name '*.twig' -o -name '*.erb' -o -name '*.blade.php' \) \
+    -print -quit | awk 'NF { found=1 } END { exit(found ? 0 : 1) }'
+}
+
+package_has_ui_signal() {
+  local package="$PROJECT/package.json"
+  [ -f "$package" ] || return 1
+  jq -e '
+    ((.dependencies // {}) + (.devDependencies // {})) as $d
+    | any(["react","react-dom","next","vue","nuxt","svelte","@sveltejs/kit","vite","webpack","parcel","astro"][]; $d[.] != null)
+      or ([.scripts[]?] | any(.[]; test("next|vite|webpack|react-scripts|vue-cli-service|nuxt|svelte|astro|parcel")))
+  ' "$package" >/dev/null 2>&1
+}
+
+detect_package() {
+  local package="$PROJECT/package.json" script_name manager
+  [ -f "$package" ] || return 1
+  has_ui_files || package_has_ui_signal || return 1
+  script_name="$(jq -r 'if .scripts.dev then "dev" elif .scripts.start then "start" elif .scripts.serve then "serve" else empty end' "$package")"
+  [ -n "$script_name" ] || return 2
+  if [ -f "$PROJECT/pnpm-lock.yaml" ]; then manager='pnpm run'
+  elif [ -f "$PROJECT/yarn.lock" ]; then manager='yarn'
+  elif [ -f "$PROJECT/bun.lockb" ] || [ -f "$PROJECT/bun.lock" ]; then manager='bun run'
+  else manager='npm run'; fi
+  DETECTED_KIND='package-script'
+  DETECTED_SERVE="$manager $script_name"
+  DETECTED_ENV='node'
+  DETECTION_DETAIL="Detected UI files or dependencies and package.json script '$script_name'."
+}
+
+detect_project() {
+  if { [ -f "$PROJECT/docker-compose.yml" ] || [ -f "$PROJECT/docker-compose.yaml" ] || [ -f "$PROJECT/compose.yml" ] || [ -f "$PROJECT/compose.yaml" ]; } && has_ui_files; then
+    DETECTED_KIND='compose'
+    DETECTED_ENV='compose'
+    DETECTED_SERVE=''
+    DETECTION_DETAIL='Detected Compose configuration and UI files.'
+    return
+  fi
+  if [ -f "$PROJECT/Dockerfile" ] && has_ui_files; then
+    DETECTED_KIND='docker'
+    DETECTED_ENV='docker'
+    DETECTED_SERVE=''
+    DETECTION_DETAIL='Detected Dockerfile and UI files.'
+    return
+  fi
+  if detect_package; then return; fi
+  if [ -f "$PROJECT/manage.py" ] && has_ui_files; then
+    DETECTED_KIND='django'
+    DETECTED_ENV='node'
+    DETECTED_SERVE="python3 manage.py runserver 127.0.0.1:${DOLLAR}PORT"
+    DETECTION_DETAIL='Detected Django manage.py and UI templates.'
+    return
+  fi
+  if [ -x "$PROJECT/bin/rails" ] && has_ui_files; then
+    DETECTED_KIND='rails'
+    DETECTED_ENV='node'
+    DETECTED_SERVE="bin/rails server -b 127.0.0.1 -p ${DOLLAR}PORT"
+    DETECTION_DETAIL='Detected Rails executable and UI templates.'
+    return
+  fi
+  if [ -f "$PROJECT/artisan" ] && has_ui_files; then
+    DETECTED_KIND='laravel'
+    DETECTED_ENV='node'
+    DETECTED_SERVE="php artisan serve --host=127.0.0.1 --port=${DOLLAR}PORT"
+    DETECTION_DETAIL='Detected Laravel artisan and UI templates.'
+    return
+  fi
+  if { [ -f "$PROJECT/index.html" ] || [ -f "$PROJECT/public/index.html" ]; }; then
+    DETECTED_KIND='static'
+    DETECTED_ENV='node'
+    DETECTED_SERVE="python3 -m http.server \"${DOLLAR}PORT\" --bind 127.0.0.1"
+    DETECTION_DETAIL='Detected a static HTML entry point.'
+    return
+  fi
+}
+
+write_config_once() {
+  local temporary
+  [ "$DETECTED_KIND" != none ] || return 0
+  [ -f "$CONFIG_FILE" ] && return 0
+  temporary="$(mktemp "$STATE_DIR/.config.XXXXXX")"
+  jq -n \
+    --arg env "$DETECTED_ENV" \
+    --arg serve "$DETECTED_SERVE" \
+    --arg portFlag "$DETECTED_PORT_FLAG" \
+    --arg kind "$DETECTED_KIND" \
+    '{env:$env,browserMode:"auto",serve:$serve,portFlag:$portFlag,url:"http://127.0.0.1:${PORT}",healthPath:"/",readyTimeoutMs:60000,reuseExisting:true,routes:["/"],viewports:[[375,812],[768,1024],[1440,900]],themes:["light","dark"],restartOn:["package.json","*lock*","requirements.txt","Gemfile","*.config.*",".env"],watchGlobs:["**/*.{tsx,jsx,vue,svelte,css,scss,html,twig,erb,blade.php}"],maxShots:40,container:{service:null,port:null,image:null},auth:null,generated:{by:"coder-ai-os",detectedKind:$kind}}' \
+    > "$temporary"
+  mv "$temporary" "$CONFIG_FILE"
+}
+
+write_guide() {
+  local temporary config_status='not generated'
+  if [ -f "$GUIDE_FILE" ] && ! grep -qF '<!-- coder-ai-os:generated -->' "$GUIDE_FILE"; then
+    return 0
+  fi
+  [ -f "$CONFIG_FILE" ] && config_status="available at \`.coder-ai/val/config.json\`"
+  temporary="$(mktemp "$STATE_DIR/.setup.XXXXXX")"
+  {
+    printf '%s\n' '<!-- coder-ai-os:generated -->' '# Visual Autonomy Loop' ''
+    printf "Detection: \`%s\` — %s\n\n" "$DETECTED_KIND" "$DETECTION_DETAIL"
+    printf 'Configuration: %s. Existing configuration is never overwritten by setup or sync.\n\n' "$config_status"
+    printf '%s\n' "Run \`./.coder-ai/val/run doctor\` first, then \`./.coder-ai/val/run run\`. Agents should run VAL automatically after a git diff touches a configured \`watchGlobs\` UI file." ''
+    printf '%s\n' 'If detection was incomplete, edit the config with the real serve command and URL. VAL does not install project dependencies, so old Node/TypeScript and non-Node applications keep their existing toolchain.'
+  } > "$temporary"
+  mv "$temporary" "$GUIDE_FILE"
+}
+
+write_runner_once() {
+  local temporary
+  [ -f "$RUN_FILE" ] && return 0
+  temporary="$(mktemp "$STATE_DIR/.run.XXXXXX")"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' "IFS=\$'\\n\\t'" ''
+    printf '%s\n' 'command -v val >/dev/null 2>&1 || { echo "VAL is not installed; run coder-ai-os install" >&2; exit 3; }'
+    printf '%s\n' 'exec val "$@"'
+  } > "$temporary"
+  chmod 755 "$temporary"
+  mv "$temporary" "$RUN_FILE"
+}
+
+write_ignore_once() {
+  [ ! -L "$IGNORE_FILE" ] || fail 'refusing symlink: .coder-ai/val/.gitignore'
+  [ -f "$IGNORE_FILE" ] && return 0
+  {
+    printf '%s\n' 'locks/' 'runs/' 'auth.json' 'server.log' 'browser-cache/'
+  } > "$IGNORE_FILE"
+}
+
+mkdir -p "$STATE_DIR"
+detect_project
+write_config_once
+write_guide
+write_runner_once
+write_ignore_once
+printf 'VAL setup: %s — %s\n' "$DETECTED_KIND" "$DETECTION_DETAIL"

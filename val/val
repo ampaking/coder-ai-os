@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+VAL_SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+export VAL_SOURCE_DIR
+
+# shellcheck source=val/lib/common.sh
+source "$VAL_SOURCE_DIR/lib/common.sh"
+# shellcheck source=val/lib/config.sh
+source "$VAL_SOURCE_DIR/lib/config.sh"
+# shellcheck source=val/lib/detect.sh
+source "$VAL_SOURCE_DIR/lib/detect.sh"
+# shellcheck source=val/lib/server.sh
+source "$VAL_SOURCE_DIR/lib/server.sh"
+# shellcheck source=val/lib/browser.sh
+source "$VAL_SOURCE_DIR/lib/browser.sh"
+# shellcheck source=val/lib/auth.sh
+source "$VAL_SOURCE_DIR/lib/auth.sh"
+# shellcheck source=val/lib/checklist.sh
+source "$VAL_SOURCE_DIR/lib/checklist.sh"
+# shellcheck source=val/lib/judge.sh
+source "$VAL_SOURCE_DIR/lib/judge.sh"
+# shellcheck source=val/lib/fix.sh
+source "$VAL_SOURCE_DIR/lib/fix.sh"
+# shellcheck source=val/lib/verify.sh
+source "$VAL_SOURCE_DIR/lib/verify.sh"
+# shellcheck source=val/lib/report.sh
+source "$VAL_SOURCE_DIR/lib/report.sh"
+# shellcheck source=val/lib/run.sh
+source "$VAL_SOURCE_DIR/lib/run.sh"
+# shellcheck source=val/lib/baseline.sh
+source "$VAL_SOURCE_DIR/lib/baseline.sh"
+# shellcheck source=val/lib/reload.sh
+source "$VAL_SOURCE_DIR/lib/reload.sh"
+
+val_usage() {
+  printf '%s\n' 'usage: val run [--task <id>] [--prompt <ui-request>] | auth [--manual] | baseline promote --run <id> | stop | doctor'
+}
+
+val_run_command() {
+  local task_id='' prompt=''
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --task)
+        shift
+        [ -n "${1:-}" ] || { val_die 3 '--task requires an id'; return 3; }
+        task_id="$1"
+        ;;
+      --prompt)
+        shift
+        [ -n "${1:-}" ] || { val_die 3 '--prompt requires the current UI request'; return 3; }
+        prompt="$1"
+        ;;
+      *) val_die 3 "unknown run argument: $1"; return 3 ;;
+    esac
+    shift
+  done
+  VAL_PROMPT="$prompt"
+  export VAL_PROMPT
+  val_run "$task_id"
+}
+
+val_main() {
+  local command="${1:-}" manual run_dir
+  case "$command" in
+    doctor)
+      shift
+      [ "$#" -eq 0 ] || val_die 3 "doctor accepts no arguments"
+      val_doctor
+      ;;
+    stop)
+      shift
+      [ "$#" -eq 0 ] || val_die 3 "stop accepts no arguments"
+      val_require_core
+      val_server_stop_all
+      ;;
+    run)
+      shift
+      val_run_command "$@"
+      ;;
+    baseline)
+      shift
+      if [ "${1:-}" = promote ] && [ "${2:-}" = --run ] && [ -n "${3:-}" ] && [ "$#" -eq 3 ]; then
+        val_require_core
+        val_baseline_promote "$3"
+      else
+        val_die 3 'usage: val baseline promote --run <run-id>'
+      fi
+      ;;
+    auth)
+      shift
+      manual='false'
+      if [ "${1:-}" = --manual ] && [ "$#" -eq 1 ]; then manual='true'
+      elif [ "$#" -ne 0 ]; then val_die 3 'usage: val auth [--manual]'; fi
+      val_require_core
+      val_config_load
+      [ "$(val_config_get '.auth == null')" = false ] || { val_die 3 'auth is not configured'; return 3; }
+      VAL_RUN_ID="auth-$(date '+%Y%m%d-%H%M%S')-$$"
+      VAL_LOCK_FILE="$VAL_LOCK_DIR/$VAL_RUN_ID.json"
+      run_dir="$VAL_STATE_DIR/runs/$VAL_RUN_ID"
+      mkdir -p "$run_dir"
+      VAL_LOG_FILE="$run_dir/val.log"
+      export VAL_RUN_ID VAL_LOCK_FILE VAL_LOG_FILE
+      : > "$VAL_LOG_FILE"
+      VAL_DRIVER=''
+      val_detect_driver >/dev/null
+      trap 'val_server_stop || true' EXIT
+      val_server_start
+      if [ "$manual" = true ]; then
+        VAL_BROWSER_MODE='local'
+        export VAL_BROWSER_MODE
+        val_auth_manual "$run_dir" >/dev/null
+      else
+        val_auth_prepare "$run_dir" >/dev/null
+      fi
+      val_server_stop
+      trap - EXIT
+      printf 'VAL authentication state is ready: %s\n' "$(val_auth_state_path)"
+      ;;
+    -h|--help|help)
+      val_usage
+      ;;
+    '')
+      val_usage >&2
+      return 3
+      ;;
+    *)
+      val_usage >&2
+      val_die 3 "unknown command: $command"
+      ;;
+  esac
+}
+
+val_main "$@"

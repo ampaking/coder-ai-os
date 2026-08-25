@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { background: #fff; color: #111; font: 20px Arial, sans-serif; margin: 24px; }
+      .moving { animation: pulse 1s infinite; }
+      @keyframes pulse { from { opacity: .2; } to { opacity: 1; } }
+    </style>
+  </head>
+  <body>
+    <main class="moving">
+      <h1>VAL deterministic fixture</h1>
+      <p id="dynamic"></p>
+      <button style="width:20px;height:20px;padding:0;outline:none">x</button>
+      <div data-val-check-visibility style="width:500px">intentional overflow fixture</div>
+    </main>
+    <script>document.querySelector('#dynamic').textContent = `${Date.now()} / ${Math.random()}`;</script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "env": "node",
+  "serve": "python3 '__SERVE__' \"$PORT\"",
+  "url": "http://127.0.0.1:${PORT}",
+  "healthPath": "/ready",
+  "readyTimeoutMs": 5000
+}
