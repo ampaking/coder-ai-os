@@ -23,4 +23,4 @@ Safety lives in `config/safety.yaml` + `claude/permissions.json`. The compiler d
 ## Testing
 The scripts are validated by running them against a sandbox `HOME` and a throwaway git repo
 (never your real `~`). Syntax-check with `bash -n` and `python3 -c "import ast; ..."`.
-Regenerate the repo snapshot with `scripts/update-ai-context.sh` when structure changes.
+Regenerate an installed project's snapshot with `.coder-ai-os-script/update-ai-context.sh` when structure changes.

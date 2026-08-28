@@ -76,8 +76,8 @@ Highlights of the current release. Full detail in the [changelog](CHANGELOG.md).
 - **A shared human–AI map** — every repo gets `.ai/PROJECT_NAVIGATOR.md`: intended outcome, current
   flow, connected files, AI limits, open decisions, and mistake recovery. Your edits survive `sync`.
 - **Codex the way Codex works** — read-only review agents compile to `.codex/agents`, skills to
-  `.agents/skills`, and no sandbox mode is forced on you anymore (pinned modes broke on Ubuntu
-  23.10+); Codex picks its own, and `approval_policy="on-failure"` lets it ask to retry.
+  `.agents/skills`, and setup uses Codex's portable `:workspace` permission profile rather than
+  pinning a platform-specific sandbox mode. Existing user permission choices always win.
 - **Live context in the status line** — install adds a Claude Code and Codex status line showing
   real context use, measured by the harness rather than guessed by the model. Your own config wins.
 - **An understand-first floor** — no tier can skip it: state intent before the first edit, never
@@ -142,8 +142,10 @@ and a final diff-to-goal audit. English remains the default unless explicitly
 requested otherwise.
 
 Codex keeps its host-selected sandbox so the same generated harness works across Linux, macOS,
-Windows, containers, and restricted runners; coder-ai-os adds `approval_policy="on-failure"` only
-when the user has not chosen a policy. Claude uses auto mode with hard deny rules. Existing user or
+Windows, containers, and restricted runners; coder-ai-os adds `default_permissions=":workspace"`
+and the current interactive `approval_policy="on-request"` only when the user chose neither a
+permission profile nor sandbox mode. Routine project-local work proceeds inside the workspace;
+attempts outside it still require the host's approval. Claude uses auto mode with hard deny rules. Existing user or
 project safety values always win, and coder-ai-os never enables unrestricted execution automatically.
 
 > **`coder-ai-os: command not found`?** The `coder-ai-os` command only exists *after* step 1
@@ -181,7 +183,18 @@ coder-ai-os setup
 # Later, refresh generated integration files with: coder-ai-os sync
 ./.coder-ai/val/run doctor
 ./.coder-ai/val/run run --task pricing-card --prompt "Make pricing cards stack below 768px"
-# equivalent: coder-ai-os val run --task pricing-card
+```
+
+Agents are always instructed to use the project-local `./.coder-ai/val/run` wrapper. For a human
+at a terminal, `coder-ai-os val ...` remains an optional convenience and delegates to that local
+wrapper when the current project has one.
+
+In a monorepo, setup writes `.coder-ai/val/apps.json` plus one isolated config and runtime state
+directory per detected web package. Select the application explicitly when more than one exists:
+
+```sh
+./.coder-ai/val/run --app apps-admin doctor
+./.coder-ai/val/run --app apps-admin run --task workflow-modal
 ```
 
 Detection supports package scripts regardless of Node/TypeScript age, Django, Rails, Laravel,
@@ -199,7 +212,14 @@ A run produces `.coder-ai/val/runs/<task>/manifest.json`, round evidence,
 criteria, `2` capped/escalated with `BLOCKED.md`, and `3` infrastructure failure. Baselines are
 human-controlled and are promoted only with `val baseline promote --run <task>` after review.
 
-Authentication is off by default. Configured fill values must be exact environment placeholders
+For detected package-based web apps, setup creates a test-only fixture scaffold at
+`.coder-ai-os-script/val-fixtures/<app-id>.mjs`. It is intentionally fail-closed until the project
+defines its local browser storage state and exact deterministic API responses. Package metadata can
+identify a framework, but cannot safely infer an application's roles, session format, or authorization
+rules. The adapter may write only into its isolated `.coder-ai/val/` app state; VAL rejects symlinks,
+paths outside that state, malformed routes, and any silent fallback to production credentials.
+
+Legacy scripted authentication remains available when fixture mode is disabled. Configured fill values must be exact environment placeholders
 such as `${VAL_USER}` and `${VAL_PASS}`; literal credentials are rejected. VAL masks password
 fields in login evidence, saves state under `.coder-ai/val/` with mode `0600`, and attempts login
 at most twice. For MFA/captcha, run `val auth --manual`; VAL opens a local headed browser, waits

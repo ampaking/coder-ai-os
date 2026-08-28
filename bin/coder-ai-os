@@ -126,7 +126,7 @@ case "${1:-help}" in
   install)     shift; exec "$REPO_DIR/install.sh" --yes "$@" ;;
   setup)       shift; cmd_setup "$@" ;;
   sync)        shift; cmd_setup "$@" ;;
-  val)         shift; exec "$REPO_DIR/val/val" "$@" ;;
+  val)         shift; if [ -x "$PWD/.coder-ai/val/run" ]; then exec "$PWD/.coder-ai/val/run" "$@"; fi; exec "$REPO_DIR/val/val" "$@" ;;
   init)        shift; cmd_init "$@" ;;
   compile)     need python3; exec python3 "$REPO_DIR/bin/compile" ;;
   doctor)      cmd_doctor ;;

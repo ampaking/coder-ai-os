@@ -16,3 +16,19 @@ artifacts/
 # memory) is generated/internal — not part of the released tool. The tool still writes
 # .ai/ into the repos you point it at; this ignore only affects THIS repo.
 .ai/
+
+# Project-scoped dogfood output created when coder-ai-os is run against THIS repository.
+# Canonical sources live in config/, skills/, protocol/, scripts/, and build/project/.
+# Keep the installed root copies local; build/ remains intentionally committed.
+/.agents/
+/.claude/
+/.coder-ai-os-script/
+/.coder-ai/
+/.codex/
+/.cursor/
+/.gemini/
+/.github/copilot-instructions.md
+/AGENTS.md
+/AI_DEV_PROTOCOL.md
+/CLAUDE.md
+/GEMINI.md

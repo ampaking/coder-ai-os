@@ -30,8 +30,8 @@ val_browser_prepare_local() {
   if [ "$source_hash" != "$installed_hash" ]; then
     mkdir -p "$VAL_BROWSER_CACHE_DIR"
     cp "$VAL_SOURCE_DIR/browser/package.json" "$VAL_SOURCE_DIR/browser/package-lock.json" "$VAL_SOURCE_DIR/browser/run.mjs" "$VAL_BROWSER_CACHE_DIR/"
-    npm ci --prefix "$VAL_BROWSER_CACHE_DIR" --omit=dev --ignore-scripts >&2
-    npm exec --prefix "$VAL_BROWSER_CACHE_DIR" -- playwright install chromium >&2
+    ( cd "$VAL_BROWSER_CACHE_DIR" && npm ci --omit=dev --ignore-scripts ) >&2
+    ( cd "$VAL_BROWSER_CACHE_DIR" && npm exec -- playwright install chromium ) >&2
     printf '%s\n' "$source_hash" > "$VAL_BROWSER_CACHE_DIR/source.cksum"
   fi
 }
@@ -61,6 +61,7 @@ val_browser_remap_docker_request() {
     .outDir |= state_path
     | .baselineDir |= state_path
     | .authState |= state_path
+    | .fixtureFile |= state_path
     | if $hostMode == "desktop" then
         .url |= sub("^http://(127\\.0\\.0\\.1|localhost)(?=[:/])"; "http://host.docker.internal")
         | .url |= sub("^https://(127\\.0\\.0\\.1|localhost)(?=[:/])"; "https://host.docker.internal")
