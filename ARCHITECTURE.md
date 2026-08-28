@@ -34,7 +34,7 @@ draft → review → compile) · `--from profile.yaml`.
 | **Profile** | experience, languages, style (coding.*), reply format | `config/user.yaml` (+ `profiles/<lang>.yaml`) | done |
 | **Safety** | non-negotiable guardrails (`.env`/git/sudo/deploy) | `config/safety.yaml` + `claude/permissions.json` | done |
 | **Workflow** | intent → plan → atomic tasks → validate → review | `config/workflow.yaml` + `protocol/AI_DEV_PROTOCOL.md` | done (instructional, by design) |
-| **Context** | orient L1–L4, snapshot, index, retrieval policy + budgets | `config/context.yaml` · `scripts/update-ai-context.sh` | done |
+| **Context** | orient L1–L4, snapshot, index, retrieval policy + budgets | `config/context.yaml` · project `.coder-ai-os-script/update-ai-context.sh` | done |
 | **Skill** | lazy-load one skill per trigger | `config/skills.yaml` + `skills/<id>/SKILL.md` | done |
 | **Adapter** | emit per-tool files (5 tools) | `bin/compile` render/footers | done |
 | **Audit** | budget, drift, conflicts, skills, health | `coder-ai-os doctor` | done |
