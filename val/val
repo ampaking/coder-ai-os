@@ -2,7 +2,16 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-VAL_SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# Resolve through symlinks: val is invoked via ~/.local/bin/val (a symlink into the
+# repo), so BASH_SOURCE is the link, not the real file. Walk links to find the actual
+# val/ dir, or lib/ resolves against ~/.local/bin. (Same pattern as bin/coder-ai-os.)
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _dir="$(cd -P "$(dirname "$SELF")" >/dev/null 2>&1 && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) : ;; *) SELF="$_dir/$SELF" ;; esac
+done
+VAL_SOURCE_DIR="$(cd -P "$(dirname "$SELF")" >/dev/null 2>&1 && pwd)"
 export VAL_SOURCE_DIR
 
 # shellcheck source=val/lib/common.sh
@@ -17,6 +26,8 @@ source "$VAL_SOURCE_DIR/lib/server.sh"
 source "$VAL_SOURCE_DIR/lib/browser.sh"
 # shellcheck source=val/lib/auth.sh
 source "$VAL_SOURCE_DIR/lib/auth.sh"
+# shellcheck source=val/lib/fixture.sh
+source "$VAL_SOURCE_DIR/lib/fixture.sh"
 # shellcheck source=val/lib/checklist.sh
 source "$VAL_SOURCE_DIR/lib/checklist.sh"
 # shellcheck source=val/lib/judge.sh

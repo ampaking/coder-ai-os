@@ -39,6 +39,7 @@ val_server_start() { printf '%s\n' start >> "$STARTS"; VAL_URL='http://fixture.i
 val_server_stop() { :; }
 val_detect_browser_mode() { printf '%s\n' local; }
 val_run_has_dark_theme() { return 1; }
+val_fixture_prepare() { :; }
 val_auth_prepare() { printf '%s\n' ''; }
 val_checklist_update() { printf '%s\n' '[]' > "$1"; }
 val_fix_collect_allowed_files() { if [ "$MODE" = css ]; then printf '%s\n' src/ui.css; else printf '%s\n' package.json; fi; }

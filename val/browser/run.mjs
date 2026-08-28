@@ -27,6 +27,7 @@ async function readRequest() {
   if (request?.protocolVersion !== PROTOCOL_VERSION) throw new Error("unsupported protocolVersion");
   if (typeof request.url !== "string" || !request.url) throw new Error("url is required");
   if (typeof request.outDir !== "string" || !path.isAbsolute(request.outDir)) throw new Error("outDir must be absolute");
+  if (request.fixtureFile != null && (typeof request.fixtureFile !== "string" || !path.isAbsolute(request.fixtureFile))) throw new Error("fixtureFile must be an absolute path");
   const operation = request.operation || "capture";
   if (!["capture", "auth-check", "auth-login", "auth-manual"].includes(operation)) throw new Error("unsupported operation");
   if (operation === "capture" && (!Array.isArray(request.shots) || request.shots.length === 0)) throw new Error("shots must be a non-empty array");
@@ -72,8 +73,15 @@ async function installDeterminism(context) {
 
 async function installNetworkBoundary(context, request) {
   const allowedOrigins = new Set([new URL(request.url).origin, ...(request.allowedOrigins || [])]);
+  const fixture = request.fixtureFile ? JSON.parse(await fs.readFile(request.fixtureFile, "utf8")) : { routes: [] };
   await context.route("**/*", async (route) => {
-    const url = route.request().url();
+    const currentRequest = route.request();
+    const url = currentRequest.url();
+    const match = (fixture.routes || []).find((entry) => entry.url === url && (!entry.method || entry.method === currentRequest.method()));
+    if (match) {
+      await route.fulfill({ status: match.status || 200, contentType: match.contentType || "application/json", body: typeof match.body === "string" ? match.body : JSON.stringify(match.body ?? null) });
+      return;
+    }
     if (/^(data|blob):/.test(url) || allowedOrigins.has(new URL(url).origin)) await route.continue();
     else await route.abort("blockedbyclient");
   });

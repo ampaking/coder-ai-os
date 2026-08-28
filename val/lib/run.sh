@@ -66,8 +66,8 @@ val_run_capture_round() {
   val_require_safe_output "$round_dir/shots"
   mkdir -p "$round_dir/shots"
   jq -n --arg url "$VAL_URL" --arg outDir "$round_dir/shots" --arg baselineDir "$VAL_STATE_DIR/baseline" \
-    --arg authState "$auth_state" --argjson shots "$(val_run_shots)" \
-    '{protocolVersion:1,url:$url,outDir:$outDir,baselineDir:$baselineDir,authState:(if $authState == "" then null else $authState end),settle:true,checks:["overflow","clipped","axe","focus","tap-target","viewport","pixel"],shots:$shots}' \
+    --arg authState "$auth_state" --arg fixtureFile "${VAL_FIXTURE_FILE:-}" --argjson shots "$(val_run_shots)" \
+    '{protocolVersion:1,url:$url,outDir:$outDir,baselineDir:$baselineDir,authState:(if $authState == "" then null else $authState end),fixtureFile:(if $fixtureFile == "" then null else $fixtureFile end),settle:true,checks:["overflow","clipped","axe","focus","tap-target","viewport","pixel"],shots:$shots}' \
     | val_browser_run > "$browser_result"
 }
 
@@ -103,7 +103,7 @@ val_run_merge_judgments() {
 }
 
 val_run() {
-  local requested_id="${1:-}" run_dir round_dir browser_result checklist results report manifest status auth_state
+  local requested_id="${1:-}" run_dir round_dir browser_result checklist results report manifest status auth_state fixture_file=''
   local judgments attempts round=1 started_seconds="$SECONDS" blocked_reason='' changed reload_status shot
   val_require_core
   val_config_load
@@ -138,7 +138,14 @@ val_run() {
   val_server_start || { val_run_infra_report "$run_dir" 'server failed to become healthy'; return 3; }
   VAL_BROWSER_MODE="$(val_detect_browser_mode)"
   export VAL_BROWSER_MODE
-  auth_state="$(val_auth_prepare "$run_dir")" || { val_run_infra_report "$run_dir" 'authentication failed'; return 3; }
+  fixture_file="$(val_fixture_prepare)" || { val_run_infra_report "$run_dir" 'fixture preparation failed'; return 3; }
+  VAL_FIXTURE_FILE="$fixture_file"
+  export VAL_FIXTURE_FILE
+  if [ -n "$fixture_file" ] && [ "$(jq -r '.authState // empty' "$fixture_file")" != "" ]; then
+    auth_state="$(jq -r '.authState' "$fixture_file")"
+  else
+    auth_state="$(val_auth_prepare "$run_dir")" || { val_run_infra_report "$run_dir" 'authentication failed'; return 3; }
+  fi
   val_checklist_update "$checklist" "${VAL_PROMPT:-}" || { val_run_infra_report "$run_dir" 'checklist extraction failed'; return 3; }
   VAL_PRIORITY_ROUTES="$(val_run_priority_routes "$checklist")"
   export VAL_PRIORITY_ROUTES

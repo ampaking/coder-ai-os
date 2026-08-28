@@ -22,6 +22,12 @@ node_config="$node_project/.coder-ai/val/config.json"
 [ "$(jq -r '.serve' "$node_config")" = 'yarn dev' ] || fail 'yarn serve command was not generated'
 [ -x "$node_project/.coder-ai/val/run" ] || fail 'project VAL runner was not generated'
 grep -q '^auth.json$' "$node_project/.coder-ai/val/.gitignore" || fail 'VAL runtime secrets are not ignored'
+[ "$(jq -r '.apps | length' "$node_project/.coder-ai/val/apps.json")" = 1 ] || fail 'single web app registry missing'
+[ "$(jq -r '.apps[0].id' "$node_project/.coder-ai/val/apps.json")" = root ] || fail 'root app id is unstable'
+[ -f "$node_project/.coder-ai/val/apps/root/config.json" ] || fail 'isolated root app config missing'
+[ -x "$node_project/.coder-ai-os-script/val-fixtures/root.mjs" ] || fail 'test-auth fixture scaffold missing'
+if node "$node_project/.coder-ai-os-script/val-fixtures/root.mjs" 2>"$TMP/fixture-error"; then fail 'generated fixture scaffold did not fail closed'; fi
+grep -q 'Never read production credentials' "$TMP/fixture-error" || fail 'fixture scaffold lacks safe completion guidance'
 
 before="$(cksum "$node_config")"
 jq '.routes=["/custom"]' "$node_config" > "$node_config.user"
@@ -54,5 +60,22 @@ printf '%s\n' '<main>UI</main>' > "$symlink_ignore_project/src/index.html"
 ln -s "$TMP/dangling-ignore-target" "$symlink_ignore_project/.coder-ai/val/.gitignore"
 if "$ROOT/val/project-init" "$symlink_ignore_project" >/dev/null 2>&1; then fail 'project setup followed a runtime .gitignore symlink'; fi
 [ ! -e "$TMP/dangling-ignore-target" ] || fail 'project setup wrote outside state through .gitignore symlink'
+
+monorepo="$TMP/web monorepo"
+mkdir -p "$monorepo/apps/admin/src" "$monorepo/apps/user/src" "$monorepo/packages/shared"
+printf '%s\n' '{"private":true,"workspaces":["apps/*","packages/*"]}' > "$monorepo/package.json"
+printf '%s\n' '{"name":"admin-web","scripts":{"dev":"next dev"},"dependencies":{"next":"15.0.0"}}' > "$monorepo/apps/admin/package.json"
+printf '%s\n' '{"name":"user-web","scripts":{"dev":"vite"},"dependencies":{"react":"19.0.0","vite":"6.0.0"}}' > "$monorepo/apps/user/package.json"
+printf '%s\n' '{"name":"shared"}' > "$monorepo/packages/shared/package.json"
+printf '%s\n' 'export default function Page(){return null}' > "$monorepo/apps/admin/src/page.tsx"
+printf '%s\n' 'export default function App(){return null}' > "$monorepo/apps/user/src/App.tsx"
+printf '%s\n' 'lockfileVersion: 9' > "$monorepo/pnpm-lock.yaml"
+"$ROOT/val/project-init" "$monorepo" >/dev/null
+[ "$(jq -r '.apps | length' "$monorepo/.coder-ai/val/apps.json")" = 2 ] || fail 'monorepo web apps were not isolated'
+jq -e '.apps | map(.id) == ["apps-admin","apps-user"]' "$monorepo/.coder-ai/val/apps.json" >/dev/null || fail 'monorepo app ids are not stable'
+grep -q 'pnpm --dir apps/admin run dev' "$monorepo/.coder-ai/val/apps/apps-admin/config.json" || fail 'admin serve command is not root-safe'
+grep -q 'pnpm --dir apps/user run dev' "$monorepo/.coder-ai/val/apps/apps-user/config.json" || fail 'user serve command is not root-safe'
+if (cd "$monorepo" && PATH="$ROOT/val:$PATH" ./.coder-ai/val/run doctor >/dev/null 2>&1); then fail 'ambiguous monorepo run did not require --app'; fi
+(cd "$monorepo" && PATH="$ROOT/val:$PATH" ./.coder-ai/val/run --app apps-admin doctor >/dev/null) || fail 'selected monorepo app doctor failed'
 
 printf '%s\n' 'PASS: VAL automatic project setup'

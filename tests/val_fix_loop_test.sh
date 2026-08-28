@@ -32,6 +32,7 @@ val_detect_driver() { VAL_DRIVER='remote'; export VAL_DRIVER; printf '%s\n' remo
 val_server_start() { VAL_URL='http://fixture.invalid'; VAL_STARTED_BY_US='false'; export VAL_URL VAL_STARTED_BY_US; }
 val_server_stop() { :; }
 val_detect_browser_mode() { printf '%s\n' local; }
+val_fixture_prepare() { :; }
 val_auth_prepare() { printf '%s\n' ''; }
 val_checklist_update() { printf '%s\n' '[]' > "$1"; }
 val_fix_collect_allowed_files() { printf '%s\n' src/ui.css; }
