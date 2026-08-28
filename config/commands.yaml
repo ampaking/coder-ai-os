@@ -11,4 +11,4 @@ commands:
     body: Review as Reviewer then Security then Performance then Architecture. Compare the full diff with the original Definition of Done. Report findings with file and line only. Do not edit.
   snapshot:
     description: Regenerate the repository orientation snapshot
-    body: Run scripts/update-ai-context.sh and summarize what structurally changed.
+    body: Run .coder-ai-os-script/update-ai-context.sh and summarize what structurally changed.

@@ -250,7 +250,7 @@ def render(cfg, tool):
                  ". L1: `rg -w '<name>' .ai/symbols/` — one row answers; NEVER read a map "
                  "whole (units in `" +
                  orient.get("snapshot", "") + "`); " + orient.get("index", "") +
-                 ". After edits: `scripts/update-ai-context.sh --changed <dir>` shows "
+                 ". After edits: `.coder-ai-os-script/update-ai-context.sh --changed <dir>` shows "
                  "changes; task done: `--refresh`.")
         L.append("")
     # 4c. Harness — compact pointers only (mechanisms live in generated artifacts, not here)
@@ -300,7 +300,7 @@ def render(cfg, tool):
     verb = str(usr.get("verbosity"))
     narrate = ""
     if verb in ("medium", "high"):
-        narrate = " - intent line before first action; note phase changes"
+        narrate = " - intent first; phase updates"
     L.append("## Reply format — " + fmt + ", <=" + str(tok.get("max_tokens")) +
              " tokens (verbosity: " + verb + narrate + ")")
     L.append("```")

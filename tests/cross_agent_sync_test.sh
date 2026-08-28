@@ -33,10 +33,13 @@ has 'AI_DEV_PROTOCOL.md' "$repo/.github/copilot-instructions.md"
 for f in "$repo/AGENTS.md" "$repo/CLAUDE.md" "$repo/GEMINI.md" \
          "$repo/.cursor/rules/coder-ai-os.mdc" "$repo/.github/copilot-instructions.md"; do
   has 'floor, all tiers: read before edit; verify claims; escalate on contradiction' "$f"
-  has 'verbosity: medium - intent line before first action; note phase changes' "$f"
+  has 'intent first; phase updates' "$f"
 done
 has 'user protocol note' "$repo/AI_DEV_PROTOCOL.md"
 has 'echo user-script' "$repo/scripts/update-ai-context.sh"
+[ -x "$repo/.coder-ai-os-script/update-ai-context.sh" ] || fail 'managed context helper missing from isolated directory'
+[ -x "$repo/.coder-ai-os-script/discover-standards.sh" ] || fail 'managed standards helper missing from isolated directory'
+has '.coder-ai-os-script/update-ai-context.sh' "$repo/AGENTS.md"
 has 'user MCP note' "$repo/.ai/MCP.md"
 has 'user standards' "$repo/.ai/standards.md"
 has 'Goal: keep this checkpoint exactly' "$repo/.ai/memory/CURRENT.md"
@@ -69,6 +72,7 @@ has 'coder-ai-os:managed' "$repo/.github/copilot-instructions.md"
 before_goal="$(cksum "$repo/.ai/memory/CURRENT.md")"
 before_agents="$(grep -c 'user-owned root guidance' "$repo/AGENTS.md")"
 before_script="$(cksum "$repo/scripts/update-ai-context.sh")"
+before_managed_script="$(cksum "$repo/.coder-ai-os-script/update-ai-context.sh")"
 before_mcp="$(cksum "$repo/.ai/MCP.md")"
 before_standards="$(cksum "$repo/.ai/standards.md")"
 printf '%s\n' 'Human-maintained navigator decision' >> "$repo/.ai/PROJECT_NAVIGATOR.md"
@@ -77,6 +81,7 @@ before_navigator="$(cksum "$repo/.ai/PROJECT_NAVIGATOR.md")"
 [ "$(cksum "$repo/.ai/memory/CURRENT.md")" = "$before_goal" ] || fail 'sync overwrote current task state'
 [ "$(grep -c 'user-owned root guidance' "$repo/AGENTS.md")" = "$before_agents" ] || fail 'sync duplicated user guidance'
 [ "$(cksum "$repo/scripts/update-ai-context.sh")" = "$before_script" ] || fail 'sync overwrote user script'
+[ "$(cksum "$repo/.coder-ai-os-script/update-ai-context.sh")" = "$before_managed_script" ] || fail 'sync produced a non-deterministic managed script'
 [ "$(cksum "$repo/.ai/MCP.md")" = "$before_mcp" ] || fail 'sync overwrote user MCP notes'
 [ "$(cksum "$repo/.ai/standards.md")" = "$before_standards" ] || fail 'sync overwrote user standards'
 [ "$(cksum "$repo/.ai/PROJECT_NAVIGATOR.md")" = "$before_navigator" ] || fail 'sync overwrote maintained navigator'
@@ -111,22 +116,25 @@ has 'echo user-after' "$hook_repo/.git/hooks/post-merge"
 if grep -qF 'coder-ai-os:snapshot' "$hook_repo/.git/hooks/post-merge"; then
   fail 'retired managed hook block remains'
 fi
-[ "$(stat -c '%a' "$hook_repo/.git/hooks/post-merge")" = 751 ] || fail 'hook mode changed during cleanup'
+[ "$(stat -c '%a' "$hook_repo/.git/hooks/post-merge" 2>/dev/null || stat -f '%Lp' "$hook_repo/.git/hooks/post-merge")" = 751 ] || fail 'hook mode changed during cleanup'
 
 linked_hooks="$TMP/common-git/hooks"; mkdir -p "$linked_hooks" "$TMP/worktree" "$TMP/fake-bin"
+real_git="$(command -v git)"
 cp "$hook_repo/.git/hooks/post-merge" "$linked_hooks/post-merge"
 # Restore a managed block so this fixture verifies Git-resolved worktree hook paths.
-sed -i '/echo user-after/i # >>> coder-ai-os:snapshot >>>\nscripts/update-ai-context.sh\n# <<< coder-ai-os:snapshot <<<' "$linked_hooks/post-merge"
+awk '$0 == "echo user-after" { print "# >>> coder-ai-os:snapshot >>>"; print "scripts/update-ai-context.sh"; print "# <<< coder-ai-os:snapshot <<<" } { print }' \
+  "$linked_hooks/post-merge" > "$linked_hooks/post-merge.tmp"
+mv "$linked_hooks/post-merge.tmp" "$linked_hooks/post-merge"
 cat > "$TMP/fake-bin/git" <<'FAKEGIT'
 #!/usr/bin/env bash
 if [ "${3:-}" = rev-parse ] && [ "${4:-}" = --git-path ] && [ "${5:-}" = hooks ]; then
   printf '%s\n' "$FAKE_HOOKS"
   exit 0
 fi
-exit 1
+exec "$REAL_GIT" "$@"
 FAKEGIT
 chmod +x "$TMP/fake-bin/git"
-PATH="$TMP/fake-bin:$PATH" FAKE_HOOKS="$linked_hooks" "$ROOT/bin/coder-ai-os" sync "$TMP/worktree" >/dev/null
+PATH="$TMP/fake-bin:$PATH" FAKE_HOOKS="$linked_hooks" REAL_GIT="$real_git" "$ROOT/bin/coder-ai-os" sync "$TMP/worktree" >/dev/null
 if grep -qF 'coder-ai-os:snapshot' "$linked_hooks/post-merge"; then fail 'worktree managed hook block remains'; fi
 has 'echo user-before' "$linked_hooks/post-merge"
 has 'echo user-after' "$linked_hooks/post-merge"
@@ -202,7 +210,8 @@ fi
 
 # D5 task-boundary diff: catches added/removed/moved symbols, incl. out-of-declared-scope.
 (cd "$mono" && bash "$ROOT/scripts/update-ai-context.sh" --symbols packages/api --baseline >/dev/null)
-sed -i '1i export function otpCheck() {}' "$mono/packages/api/auth.ts"
+awk 'BEGIN { print "export function otpCheck() {}" } { print }' "$mono/packages/api/auth.ts" > "$mono/packages/api/auth.ts.tmp"
+mv "$mono/packages/api/auth.ts.tmp" "$mono/packages/api/auth.ts"
 printf 'def sneaky():\n    pass\n' >> "$mono/api/users.py"   # unrelated edit in ANOTHER unit
 diff_out="$( (cd "$mono" && bash "$ROOT/scripts/update-ai-context.sh" --symbols packages/api --diff) || true)"
 printf '%s\n' "$diff_out" | grep -q '^+ function otpCheck' || fail 'symbol diff missed added function'
@@ -274,7 +283,7 @@ if command -v python3 >/dev/null 2>&1; then
   sed -i.bak 's/^verbosity: medium$/verbosity: low/' "$vb/config/user.yaml" && rm -f "$vb/config/user.yaml.bak"
   (cd "$vb" && python3 bin/compile >/dev/null)
   (cd "$vb" && python3 bin/compile --check >/dev/null) || fail 'clean full generated tree reported drift'
-  if grep -q 'note phase changes' "$vb/build/CLAUDE.md"; then fail 'verbosity low still renders narration'; fi
+  if grep -q 'phase updates' "$vb/build/CLAUDE.md"; then fail 'verbosity low still renders narration'; fi
   printf '%s\n' 'stale generated artifact' > "$vb/build/project/stale.md"
   if (cd "$vb" && python3 bin/compile --check >/dev/null 2>&1); then
     fail 'stale nested generated artifact passed --check'

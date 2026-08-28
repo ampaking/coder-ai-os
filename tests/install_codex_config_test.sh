@@ -29,6 +29,7 @@ config="$repo/.codex/config.toml"
 grep -q '^model = "user-model"$' "$config" || fail "user model was lost"
 grep -q '^approval_policy = "on-request"$' "$config" || fail "user approval policy was replaced"
 assert_count 0 '^sandbox_mode[[:space:]]*=' "$config"
+assert_count 1 '^default_permissions[[:space:]]*=[[:space:]]*":workspace"$' "$config"
 grep -q '^\[features\]$' "$config" || fail "user table was lost"
 assert_count 1 '^approval_policy[[:space:]]*=' "$config"
 assert_count 0 '^sandbox_mode[[:space:]]*=' "$config"
@@ -46,6 +47,14 @@ EOF
 sync_repo "$quoted"
 assert_count 1 '^[[:space:]]*"?approval_policy"?[[:space:]]*=' "$quoted/.codex/config.toml"
 assert_count 1 "^[[:space:]]*'?sandbox_mode'?[[:space:]]*=" "$quoted/.codex/config.toml"
+assert_count 0 '^default_permissions[[:space:]]*=' "$quoted/.codex/config.toml"
+
+permission_repo="$TMP/permission-repo"
+mkdir -p "$permission_repo/.codex"
+printf '%s\n' 'default_permissions = ":read-only"' > "$permission_repo/.codex/config.toml"
+sync_repo "$permission_repo"
+assert_count 1 '^default_permissions[[:space:]]*=[[:space:]]*":read-only"$' "$permission_repo/.codex/config.toml"
+assert_count 0 '^default_permissions[[:space:]]*=[[:space:]]*":workspace"$' "$permission_repo/.codex/config.toml"
 
 mode_repo="$TMP/mode-repo"
 mkdir -p "$mode_repo/.codex"
@@ -96,8 +105,9 @@ python3 -c 'import sys,tomllib; tomllib.load(open(sys.argv[1],"rb"))' "$own_tui/
 fresh="$TMP/fresh-repo"
 mkdir -p "$fresh"
 "$ROOT/bin/coder-ai-os" setup "$fresh" >/dev/null
-assert_count 1 '^approval_policy[[:space:]]*=[[:space:]]*"on-failure"$' "$fresh/.codex/config.toml"
+assert_count 1 '^approval_policy[[:space:]]*=[[:space:]]*"on-request"$' "$fresh/.codex/config.toml"
 assert_count 0 '^sandbox_mode[[:space:]]*=' "$fresh/.codex/config.toml"
+assert_count 1 '^default_permissions[[:space:]]*=[[:space:]]*":workspace"$' "$fresh/.codex/config.toml"
 
 grep -q '^# Project navigator — shared human/AI map$' "$fresh/.ai/PROJECT_NAVIGATOR.md" || fail 'fresh sync lacks project navigator'
 grep -q '^## Human decisions$' "$fresh/.ai/PROJECT_NAVIGATOR.md" || fail 'project navigator lacks human decision boundary'
@@ -108,11 +118,34 @@ grep -q '^## Definition of done$' "$fresh/.ai/memory/CURRENT.md" || fail 'checkp
 grep -q '^## Validation evidence (command + observed)$' "$fresh/.ai/memory/CURRENT.md" || fail 'checkpoint lacks validation evidence'
 [ -x "$fresh/.coder-ai/val/run" ] || fail 'setup did not install the project-local VAL wrapper'
 [ -f "$fresh/.agents/skills/val-fix/SKILL.md" ] || fail 'setup did not install the automatic VAL skill'
+[ "$(jq -r '.permissions.defaultMode' "$fresh/.claude/settings.json")" = auto ] || fail 'fresh project did not receive Claude auto mode'
+jq -e '.permissions.deny | index("Read(**/.env.*)") != null and index("Bash(git push:*)") != null' \
+  "$fresh/.claude/settings.json" >/dev/null || fail 'fresh project lacks Claude secret/git deny rules'
+
+claude_repo="$TMP/claude-repo"
+mkdir -p "$claude_repo/.claude"
+printf '%s\n' '{"model":"user-model","env":{"USER_SETTING":"keep"},"permissions":{"defaultMode":"plan","allow":["Bash(user-safe:*)"],"ask":["Bash(user-review:*)"],"deny":["Read(user-private/**)"]},"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"user-hook"}]}]},"custom":{"nested":{"value":42}}}' > "$claude_repo/.claude/settings.json"
+sync_repo "$claude_repo"
+[ "$(jq -r '.permissions.defaultMode' "$claude_repo/.claude/settings.json")" = plan ] || fail 'user Claude permission mode was replaced'
+jq -e '.permissions.allow | index("Bash(user-safe:*)") != null' "$claude_repo/.claude/settings.json" >/dev/null \
+  || fail 'user Claude allow rule was lost'
+jq -e '
+  .model == "user-model"
+  and .env.USER_SETTING == "keep"
+  and (.permissions.ask | index("Bash(user-review:*)") != null)
+  and (.permissions.deny | index("Read(user-private/**)") != null)
+  and .hooks.UserPromptSubmit[0].hooks[0].command == "user-hook"
+  and .custom.nested.value == 42
+' "$claude_repo/.claude/settings.json" >/dev/null || fail 'sync removed unrelated Claude settings data'
+claude_first="$(cksum "$claude_repo/.claude/settings.json")"
+sync_repo "$claude_repo"
+[ "$(cksum "$claude_repo/.claude/settings.json")" = "$claude_first" ] || fail 'Claude settings merge is not idempotent'
 home="$TMP/home"
 mkdir -p "$home"
 HOME="$home" "$ROOT/install.sh" --yes --codex-safety-defaults >/dev/null
-assert_count 1 '^approval_policy[[:space:]]*=[[:space:]]*"on-failure"$' "$home/.codex/config.toml"
+assert_count 1 '^approval_policy[[:space:]]*=[[:space:]]*"on-request"$' "$home/.codex/config.toml"
 assert_count 0 '^sandbox_mode[[:space:]]*=' "$home/.codex/config.toml"
+assert_count 1 '^default_permissions[[:space:]]*=[[:space:]]*":workspace"$' "$home/.codex/config.toml"
 [ -L "$home/.local/bin/coder-ai-os" ] || fail 'global coder-ai-os command link missing'
 [ -L "$home/.local/bin/val" ] || fail 'global VAL command link missing'
 
@@ -136,11 +169,13 @@ if command -v jq >/dev/null 2>&1; then
     | bash "$sl_home/.claude/statusline.sh" | grep -qF '[M] b | ctx 41%' || fail 'statusline.sh output wrong'
 
   own_home="$TMP/own-sl-home"; mkdir -p "$own_home/.claude"
-  printf '%s\n' '{"statusLine":{"type":"command","command":"mine.sh"}}' > "$own_home/.claude/settings.json"
+  printf '%s\n' '{"model":"home-model","env":{"HOME_SETTING":"keep"},"permissions":{"defaultMode":"acceptEdits","ask":["Bash(home-review:*)"]},"statusLine":{"type":"command","command":"mine.sh"},"custom":{"keep":true}}' > "$own_home/.claude/settings.json"
   printf '%s\n' 'my custom script' > "$own_home/.claude/statusline.sh"
   HOME="$own_home" "$ROOT/install.sh" --yes >/dev/null 2>&1
   [ "$(jq -r '.statusLine.command' "$own_home/.claude/settings.json")" = 'mine.sh' ] \
     || fail 'user statusLine was replaced'
+  jq -e '.model == "home-model" and .env.HOME_SETTING == "keep" and .permissions.defaultMode == "acceptEdits" and (.permissions.ask | index("Bash(home-review:*)") != null) and .custom.keep == true' \
+    "$own_home/.claude/settings.json" >/dev/null || fail 'global install removed existing Claude settings data'
   grep -qF 'my custom script' "$own_home/.claude/statusline.sh" || fail 'user statusline.sh was overwritten'
 
   hook_repo="$TMP/existing-hook-repo"; mkdir -p "$hook_repo/.claude"

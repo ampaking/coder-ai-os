@@ -181,7 +181,7 @@ write_codex_config(){
   awk -v b="$TOML_BEGIN" -v e="$TOML_END" -v lb="$TOML_BEGIN_OLD" -v le="$TOML_END_OLD" '
     $0==b || $0==lb {skip=1; next} $0==e || $0==le {skip=0; next} skip!=1{print}
   ' "$target" > "$clean"
-  for key in approval_policy sandbox_mode; do
+  for key in approval_policy; do
     if awk -v k="$key" '
       BEGIN {top=1; pat="^[[:space:]]*(\"" k "\"|\047" k "\047|" k ")[[:space:]]*="}
       /^[[:space:]]*\[/ {top=0}
@@ -193,6 +193,17 @@ write_codex_config(){
     line="$(awk -v k="$key" '$0 ~ "^[[:space:]]*" k "[[:space:]]*=" {print; exit}' "$source")"
     [ -n "$line" ] && { printf '%s\n' "$line" >> "$block"; found=1; }
   done
+  if awk '
+    BEGIN {top=1; pat="^[[:space:]]*(\"default_permissions\"|\047default_permissions\047|default_permissions|\"sandbox_mode\"|\047sandbox_mode\047|sandbox_mode)[[:space:]]*="}
+    /^[[:space:]]*\[/ {top=0}
+    top!=0 && $0 ~ pat {found=1}
+    END {exit(found ? 0 : 1)}
+  ' "$clean"; then
+    log "Codex: kept existing sandbox/default permissions in $target"
+  else
+    line="$(awk '$0 ~ "^[[:space:]]*default_permissions[[:space:]]*=" {print; exit}' "$source")"
+    [ -n "$line" ] && { printf '%s\n' "$line" >> "$block"; found=1; }
+  fi
   # [tui].status_line rides in its own appended managed region: tables cannot join the
   # prepended block (user top-level keys after a table header would be captured by it).
   # A user-owned status_line or explicit [tui] table wins — we skip to avoid duplicates.
@@ -444,6 +455,7 @@ remove_legacy_snapshot_hooks(){
   [ -n "$hooks" ] || hooks="$p/.git/hooks"
   case "$hooks" in /*) ;; *) hooks="$p/$hooks";; esac
   [ -d "$hooks" ] || return 0
+  hooks="$(cd -P "$hooks" >/dev/null 2>&1 && pwd)" || return 1
   cur="$hooks"
   while [ "$cur" != / ]; do
     [ ! -L "$cur" ] || { log "ERROR: refusing symlink hook path: $cur"; return 1; }
@@ -480,12 +492,12 @@ drop_project(){
   local proj="$1"
   if [ ! -d "$proj" ]; then log "SKIP --project: not a directory: $proj"; return 1; fi
   local guarded
-  for guarded in .coder-ai .ai .claude .codex .cursor .gemini .github scripts AGENTS.md CLAUDE.md GEMINI.md AI_DEV_PROTOCOL.md; do
+  for guarded in .coder-ai .coder-ai-os-script .ai .claude .codex .cursor .gemini .github AGENTS.md CLAUDE.md GEMINI.md AI_DEV_PROTOCOL.md; do
     reject_symlink "$proj/$guarded" || return 1
   done
   local have_cg=0; command -v codegraph >/dev/null 2>&1 && have_cg=1
   if [ "$DRY_RUN" = 1 ]; then
-    log "would copy AI_DEV_PROTOCOL.md + scripts/update-ai-context.sh -> $proj/"
+    log "would copy AI_DEV_PROTOCOL.md + .coder-ai-os-script helpers -> $proj/"
     log "would generate $proj/.ai/PROJECT_SNAPSHOT.md"
     log "would write your block -> $proj/{AGENTS,CLAUDE,GEMINI}.md + .claude/settings.json (guardrails+hook)"
     log "would write Cursor rule + Copilot instructions + .cursor/commands + .codex/{config.toml,skills} + .gemini/commands into $proj"
@@ -528,23 +540,23 @@ drop_project(){
   else
     inject "$protocol" "$REPO_DIR/protocol/AI_DEV_PROTOCOL.md" "$MD_BEGIN" "$MD_END" "$MD_BEGIN_OLD" "$MD_END_OLD"
   fi
-  mkdir -p "$proj/scripts" "$proj/.ai"
-  safe_cp "$REPO_DIR/scripts/update-ai-context.sh" "$proj/scripts/update-ai-context.sh"
-  chmod +x "$proj/scripts/update-ai-context.sh"
-  log "dropped AI_DEV_PROTOCOL.md + scripts/update-ai-context.sh -> $proj/"
+  mkdir -p "$proj/.coder-ai-os-script" "$proj/.ai"
+  safe_cp "$REPO_DIR/scripts/update-ai-context.sh" "$proj/.coder-ai-os-script/update-ai-context.sh"
+  chmod +x "$proj/.coder-ai-os-script/update-ai-context.sh"
+  log "dropped AI_DEV_PROTOCOL.md + .coder-ai-os-script/update-ai-context.sh -> $proj/"
   # Generate the first snapshot from the project root (script uses $(pwd)).
-  ( cd "$proj" && bash scripts/update-ai-context.sh ) \
+  ( cd "$proj" && bash .coder-ai-os-script/update-ai-context.sh ) \
     && log "generated $proj/.ai/PROJECT_SNAPSHOT.md" \
     || log "SKIP snapshot (generator returned non-zero)"
   # Symbol indexes for the synced scope (L1): sync IS the scope declaration, so every
   # unit the snapshot lists gets its index (function/class -> file:line), root included.
-  ( cd "$proj" && bash scripts/update-ai-context.sh --symbols-all ) >/dev/null 2>&1 \
+  ( cd "$proj" && bash .coder-ai-os-script/update-ai-context.sh --symbols-all ) >/dev/null 2>&1 \
     && log "generated $proj/.ai/symbols/ code atlas ($(find "$proj/.ai/symbols" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ') .md maps: INDEX -> unit -> folder, import graphs + symbol tables; each file mapped once)" \
     || log "SKIP symbol indexes (generator returned non-zero)"
   # Learn the repo's own code style so agents write matching code.
-  safe_cp "$REPO_DIR/scripts/discover-standards.sh" "$proj/scripts/discover-standards.sh"
-  chmod +x "$proj/scripts/discover-standards.sh"
-  ( cd "$proj" && bash scripts/discover-standards.sh ) \
+  safe_cp "$REPO_DIR/scripts/discover-standards.sh" "$proj/.coder-ai-os-script/discover-standards.sh"
+  chmod +x "$proj/.coder-ai-os-script/discover-standards.sh"
+  ( cd "$proj" && bash .coder-ai-os-script/discover-standards.sh ) \
     && log "discovered code standards -> $proj/.ai/standards.md" \
     || log "SKIP standards (generator returned non-zero)"
   if [ -f "$SRC/project/PROJECT_NAVIGATOR.md" ]; then
@@ -642,7 +654,7 @@ EOF
   # counts untracked files — so re-sync the snapshot and the atlas INDEX once everything is on
   # disk. Without this, a brand-new setup reports "snapshot STALE" on its very first
   # --check / doctor run, and agents distrust a map that is actually correct.
-  ( cd "$proj" && bash scripts/update-ai-context.sh && bash scripts/update-ai-context.sh --symbols . ) >/dev/null 2>&1 \
+  ( cd "$proj" && bash .coder-ai-os-script/update-ai-context.sh && bash .coder-ai-os-script/update-ai-context.sh --symbols . ) >/dev/null 2>&1 \
     && log "re-synced snapshot + atlas INDEX (fresh for --check / doctor)" \
     || log "SKIP final re-sync (generator returned non-zero)"
 }
