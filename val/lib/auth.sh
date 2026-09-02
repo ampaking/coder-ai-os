@@ -52,11 +52,12 @@ val_auth_browser_request() {
     --arg successCheck "$(val_config_get '.auth.successCheck')" \
     --argjson steps "$steps" \
     --argjson allowedOrigins "$(val_config_get '.auth.allowedOrigins // []')" \
-    '{protocolVersion:1,operation:$operation,url:$url,outDir:$outDir,authState:$authState,successCheck:$successCheck,steps:$steps,allowedOrigins:$allowedOrigins}'
+    --argjson authTimeoutMs "$(val_config_get '.authTimeoutMs // 15000')" \
+    '{protocolVersion:1,operation:$operation,url:$url,outDir:$outDir,authState:$authState,successCheck:$successCheck,steps:$steps,allowedOrigins:$allowedOrigins,authTimeoutMs:$authTimeoutMs}'
 }
 
 val_auth_prepare() {
-  local run_dir="$1" state evidence result steps attempt status
+  local run_dir="$1" state evidence result steps attempt status detail
   if [ "$(val_config_get '.auth == null')" = true ]; then
     printf '%s\n' ''
     return 0
@@ -86,7 +87,10 @@ val_auth_prepare() {
         return 0
       fi
     fi
-    val_log "authentication attempt $attempt failed; evidence=$evidence/attempt-$attempt"
+    # The browser reports why it failed in .detail; without echoing it here the reason
+    # only ever reaches a run directory, which CI discards before anyone can read it.
+    detail="$(jq -r '.detail // "no detail reported"' "$result" 2>/dev/null || printf 'unreadable browser result')"
+    val_warn "authentication attempt $attempt failed: $detail"
   done
   cp "$result" "$evidence/failure.json"
   rm -f "$result"

@@ -18,6 +18,13 @@ val_die() {
   return "$code"
 }
 
+# val_warn — a non-fatal reason the operator needs on stderr even outside VAL_DEBUG,
+# so a CI log stays actionable after the run directory is discarded.
+val_warn() {
+  printf 'VAL: %s\n' "$*" >&2
+  val_log "$*"
+}
+
 val_log() {
   local message="$*"
   if [ -n "${VAL_LOG_FILE:-}" ]; then
