@@ -20,26 +20,52 @@ approval_policy = "on-request"
 [features]
 multi_agent = true
 TOML
+mkdir -p "$repo/.claude"
+printf '%s\n' '{"permissions":{"allow":["Bash(make test:*)"]}}' > "$repo/.claude/settings.local.json"
+before_claude_local="$(cksum "$repo/.claude/settings.local.json")"
 
 "$ROOT/bin/coder-ai-os" sync "$repo" >/dev/null
 
+python3 - "$repo/.coder-ai/tasks/settings.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    settings = json.load(handle)
+assert settings["enabled"] is True
+assert settings["automaticCollection"] is True
+PY
+
+python3 "$ROOT/src/coderai/project_tasks/cli.py" --project "$repo" disable >/dev/null
+"$ROOT/bin/coder-ai-os" sync "$repo" >/dev/null
+python3 - "$repo/.coder-ai/tasks/settings.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    settings = json.load(handle)
+assert settings["enabled"] is True
+assert settings["automaticCollection"] is True
+PY
+
 has 'user-owned root guidance' "$repo/AGENTS.md"
-has 'AI_DEV_PROTOCOL.md' "$repo/AGENTS.md"
-has 'English unless explicitly requested otherwise.' "$repo/AGENTS.md"
-has 'AI_DEV_PROTOCOL.md' "$repo/CLAUDE.md"
-has 'AI_DEV_PROTOCOL.md' "$repo/GEMINI.md"
+if grep -q 'coder-ai-os:managed' "$repo/AGENTS.md"; then fail 'sync modified project-owned AGENTS.md'; fi
+[ ! -e "$repo/CLAUDE.md" ] || fail 'sync created a project-owned CLAUDE.md'
+[ ! -e "$repo/GEMINI.md" ] || fail 'sync created a project-owned GEMINI.md'
+has 'AI_DEV_PROTOCOL.md' "$repo/.coder-ai/local/INSTRUCTIONS.md"
+has 'load only the matching skill' "$repo/.coder-ai/local/INSTRUCTIONS.md"
 has 'AI_DEV_PROTOCOL.md' "$repo/.cursor/rules/coder-ai-os.mdc"
 has 'AI_DEV_PROTOCOL.md' "$repo/.github/copilot-instructions.md"
-for f in "$repo/AGENTS.md" "$repo/CLAUDE.md" "$repo/GEMINI.md" \
-         "$repo/.cursor/rules/coder-ai-os.mdc" "$repo/.github/copilot-instructions.md"; do
-  has 'floor, all tiers: read before edit; verify claims; escalate on contradiction' "$f"
+for f in "$repo/.cursor/rules/coder-ai-os.mdc" "$repo/.github/copilot-instructions.md"; do
+  has 'Load ladder' "$f"
+  has 'Floor (every tier)' "$f"
+  has 'PROTOCOL_PHASES.md' "$f"
   has 'intent first; phase updates' "$f"
 done
+[ -f "$repo/.coder-ai/PROTOCOL_PHASES.md" ] || fail 'feature/epic phases companion missing from .coder-ai/'
 has 'user protocol note' "$repo/AI_DEV_PROTOCOL.md"
 has 'echo user-script' "$repo/scripts/update-ai-context.sh"
-[ -x "$repo/.coder-ai-os-script/update-ai-context.sh" ] || fail 'managed context helper missing from isolated directory'
-[ -x "$repo/.coder-ai-os-script/discover-standards.sh" ] || fail 'managed standards helper missing from isolated directory'
-has '.coder-ai-os-script/update-ai-context.sh' "$repo/AGENTS.md"
+[ -x "$repo/.coder-ai/scripts/update-ai-context.sh" ] || fail 'managed context helper missing from isolated directory'
+[ -x "$repo/.coder-ai/scripts/discover-standards.sh" ] || fail 'managed standards helper missing from isolated directory'
+[ -x "$repo/.coder-ai/scripts/val-post-edit.py" ] || fail 'deterministic VAL edit marker missing'
+[ -x "$repo/.coder-ai/scripts/compact-current.py" ] || fail 'CURRENT compactor missing'
+has '.coder-ai/scripts/update-ai-context.sh' "$repo/.coder-ai/local/INSTRUCTIONS.md"
 has 'user MCP note' "$repo/.ai/MCP.md"
 has 'user standards' "$repo/.ai/standards.md"
 has 'Goal: keep this checkpoint exactly' "$repo/.ai/memory/CURRENT.md"
@@ -47,13 +73,39 @@ has 'approval_policy = "on-request"' "$repo/.codex/config.toml"
 has 'name: architecture' "$repo/.claude/agents/architecture.md"
 has 'complete isolated task lifecycle' "$repo/.claude/commands/task.md"
 has 'name: debugging' "$repo/.agents/skills/debugging/SKILL.md"
+has 'Prove the regression test is sensitive' "$repo/.agents/skills/debugging/SKILL.md"
+has 'Tests are bug detectors, not implementation confirmation' "$repo/.claude/skills/feature-development/SKILL.md"
 has 'default_prompt:' "$repo/.agents/skills/debugging/agents/openai.yaml"
 has 'Resume or run a complex repository task' "$repo/.agents/skills/task-lifecycle/SKILL.md"
+has 'name: native-orchestration' "$repo/.agents/skills/native-orchestration/SKILL.md"
+has 'never require `coder-ai-os run`, a daemon, or an MCP bridge' "$repo/.agents/skills/native-orchestration/SKILL.md"
+has 'codex exec --cd <project> --sandbox workspace-write' "$repo/.agents/skills/native-orchestration/SKILL.md"
+has 'claude -p --permission-mode auto --output-format json' "$repo/.claude/skills/native-orchestration/SKILL.md"
+has 'retry the same handoff once' "$repo/.agents/skills/native-orchestration/SKILL.md"
+has 'user opted out of it' "$repo/.claude/skills/native-orchestration/SKILL.md"
+has 'cannot replace its own parent process' "$repo/.agents/skills/native-orchestration/SKILL.md"
+has 'never guess model names' "$repo/.claude/skills/native-orchestration/SKILL.md"
+has '`--fallback-model <configured-model>`' "$repo/.claude/skills/native-orchestration/SKILL.md"
+has 'explicit delegated-model preference' "$repo/.agents/skills/native-orchestration/SKILL.md"
+has 'name: project-tasks' "$repo/.agents/skills/project-tasks/SKILL.md"
+has 'UI is strictly on demand' "$repo/.agents/skills/project-tasks/SKILL.md"
+has 'name: project-tasks' "$repo/.claude/skills/project-tasks/SKILL.md"
+has 'name: release-handoff' "$repo/.agents/skills/release-handoff/SKILL.md"
+has 'normally 2–3 changed source/test files' "$repo/.claude/skills/release-handoff/SKILL.md"
+has '.ai/knowledge/release-workflow.md' "$repo/.agents/skills/release-handoff/SKILL.md"
+has 'Never mention AI, Claude, Codex' "$repo/.claude/skills/release-handoff/SKILL.md"
+has 'Never run `git add`' "$repo/.agents/skills/release-handoff/SKILL.md"
+has 'tasks/' "$repo/.coder-ai/.gitignore"
+has 'runs/' "$repo/.coder-ai/.gitignore"
+[ "$(cksum "$repo/.claude/settings.local.json")" = "$before_claude_local" ] || fail 'sync overwrote native Claude standing approvals'
 if grep -q '^sandbox_mode[[:space:]]*=' "$repo/.codex/agents/explorer.toml"; then
   fail 'Codex explorer pins a sandbox instead of inheriting the host-compatible policy'
 fi
 has 'developer_instructions' "$repo/.codex/agents/reviewer.toml"
+has 'whether tests could actually catch the defect' "$repo/.codex/agents/reviewer.toml"
+has 'prefix_rule(pattern=["claude", "-p", "--permission-mode", "plan"], decision="allow")' "$repo/.codex/rules/coder-ai-os.rules"
 has 'complete isolated task lifecycle' "$repo/.cursor/commands/task.md"
+has 'Never require coder-ai-os run or Project Tasks commands' "$repo/.cursor/commands/task.md"
 has '# Project navigator — shared human/AI map' "$repo/.ai/PROJECT_NAVIGATOR.md"
 has '## Capability boundary' "$repo/.ai/PROJECT_NAVIGATOR.md"
 has '## Task graph' "$repo/.ai/PROJECT_NAVIGATOR.md"
@@ -69,23 +121,60 @@ fi
 has 'complete isolated task lifecycle' "$repo/.gemini/commands/task.toml"
 has 'coder-ai-os:managed' "$repo/.github/copilot-instructions.md"
 
+init_repo="$TMP/init-repo"; mkdir -p "$init_repo"; git -C "$init_repo" init -q
+printf '%s\n' '# user local ignore' > "$init_repo/.git/info/exclude"
+(cd "$init_repo" && "$ROOT/bin/coder-ai-os" init --ai true >/dev/null)
+python3 - "$init_repo/.coder-ai/tasks/settings.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    settings = json.load(handle)
+assert settings["enabled"] is True
+assert settings["automaticCollection"] is True
+PY
+exclude="$init_repo/.git/info/exclude"
+has '# user local ignore' "$exclude"
+has '# >>> coder-ai-os:local >>>' "$exclude"
+has '/.coder-ai/' "$exclude"
+has '/.agents/skills/' "$exclude"
+has '/.claude/settings.local.json' "$exclude"
+has '/.ai/commit.md' "$exclude"
+has '/.ai/knowledge/release-workflow.md' "$exclude"
+if grep -qFx '/AGENTS.md' "$exclude"; then fail 'local excludes hide project-owned AGENTS.md'; fi
+[ "$(grep -cFx '# >>> coder-ai-os:local >>>' "$exclude")" = 1 ] || fail 'local exclude block duplicated'
+(cd "$init_repo" && "$ROOT/bin/coder-ai-os" sync . >/dev/null)
+[ "$(grep -cFx '# >>> coder-ai-os:local >>>' "$exclude")" = 1 ] || fail 'second sync duplicated local exclude block'
+if git -C "$init_repo" status --short | grep -Eq '^\?\? ((\.coder-ai|\.ai|\.claude|\.agents|\.codex|\.cursor|\.gemini|\.github)/|AGENTS\.md|CLAUDE\.md|GEMINI\.md|AI_DEV_PROTOCOL\.md)'; then
+  fail 'fresh setup exposes untracked coder-ai-os artifacts despite local excludes'
+fi
+
 before_goal="$(cksum "$repo/.ai/memory/CURRENT.md")"
-before_agents="$(grep -c 'user-owned root guidance' "$repo/AGENTS.md")"
+before_agents="$(cksum "$repo/AGENTS.md")"
 before_script="$(cksum "$repo/scripts/update-ai-context.sh")"
-before_managed_script="$(cksum "$repo/.coder-ai-os-script/update-ai-context.sh")"
+before_managed_script="$(cksum "$repo/.coder-ai/scripts/update-ai-context.sh")"
 before_mcp="$(cksum "$repo/.ai/MCP.md")"
 before_standards="$(cksum "$repo/.ai/standards.md")"
 printf '%s\n' 'Human-maintained navigator decision' >> "$repo/.ai/PROJECT_NAVIGATOR.md"
 before_navigator="$(cksum "$repo/.ai/PROJECT_NAVIGATOR.md")"
+printf '%s\n' 'Cursor rule (repo-scoped). Generated by coder-ai-os — do not hand-edit; edit config/*.yaml and recompile.' 'stale generated rule' > "$repo/.cursor/rules/coder-ai-os.mdc"
 "$ROOT/bin/coder-ai-os" sync "$repo" >/dev/null
 [ "$(cksum "$repo/.ai/memory/CURRENT.md")" = "$before_goal" ] || fail 'sync overwrote current task state'
-[ "$(grep -c 'user-owned root guidance' "$repo/AGENTS.md")" = "$before_agents" ] || fail 'sync duplicated user guidance'
+[ "$(cksum "$repo/AGENTS.md")" = "$before_agents" ] || fail 'sync changed project-owned guidance'
 [ "$(cksum "$repo/scripts/update-ai-context.sh")" = "$before_script" ] || fail 'sync overwrote user script'
-[ "$(cksum "$repo/.coder-ai-os-script/update-ai-context.sh")" = "$before_managed_script" ] || fail 'sync produced a non-deterministic managed script'
+[ "$(cksum "$repo/.coder-ai/scripts/update-ai-context.sh")" = "$before_managed_script" ] || fail 'sync produced a non-deterministic managed script'
 [ "$(cksum "$repo/.ai/MCP.md")" = "$before_mcp" ] || fail 'sync overwrote user MCP notes'
 [ "$(cksum "$repo/.ai/standards.md")" = "$before_standards" ] || fail 'sync overwrote user standards'
 [ "$(cksum "$repo/.ai/PROJECT_NAVIGATOR.md")" = "$before_navigator" ] || fail 'sync overwrote maintained navigator'
 has 'Human-maintained navigator decision' "$repo/.ai/PROJECT_NAVIGATOR.md"
+has '.coder-ai/scripts/update-ai-context.sh' "$repo/.cursor/rules/coder-ai-os.mdc"
+has 'load only the matching skill' "$repo/.cursor/rules/coder-ai-os.mdc"
+
+legacy_scripts="$TMP/legacy-scripts"; mkdir -p "$legacy_scripts/.coder-ai-os-script/val-fixtures"
+cp "$ROOT/scripts/update-ai-context.sh" "$legacy_scripts/.coder-ai-os-script/update-ai-context.sh"
+printf '%s\n' 'user fixture' > "$legacy_scripts/.coder-ai-os-script/val-fixtures/custom.mjs"
+"$ROOT/bin/coder-ai-os" sync "$legacy_scripts" >/dev/null
+[ -x "$legacy_scripts/.coder-ai/scripts/update-ai-context.sh" ] || fail 'legacy helper was not migrated'
+has 'user fixture' "$legacy_scripts/.coder-ai/scripts/val-fixtures/custom.mjs"
+[ ! -e "$legacy_scripts/.coder-ai-os-script" ] || fail 'empty legacy helper directory remains'
 
 legacy="$TMP/legacy-repo"; mkdir -p "$legacy"; cp "$ROOT/protocol/AI_DEV_PROTOCOL.md" "$legacy/AI_DEV_PROTOCOL.md"
 "$ROOT/bin/coder-ai-os" sync "$legacy" >/dev/null
@@ -99,6 +188,30 @@ printf '%s\n' 'user-customized protocol rule' >> "$custom_legacy/AI_DEV_PROTOCOL
 "$ROOT/bin/coder-ai-os" sync "$custom_legacy" >/dev/null
 has 'user-customized protocol rule' "$custom_legacy/AI_DEV_PROTOCOL.md"
 [ ! -e "$custom_legacy/.ai/legacy/AI_DEV_PROTOCOL.pre-managed.md" ] || fail 'custom protocol was misclassified as generated'
+
+managed_docs="$TMP/managed-docs"; mkdir -p "$managed_docs/packages/api"
+cat > "$managed_docs/AGENTS.md" <<'EOF'
+project-owned root rule
+<!-- >>> coder-ai-os:managed >>> -->
+stale generated rule
+<!-- <<< coder-ai-os:managed <<< -->
+project-owned trailing rule
+EOF
+cat > "$managed_docs/packages/api/AGENTS.md" <<'EOF'
+package-owned rule
+<!-- >>> coder-ai-os:managed >>> -->
+stale package rule
+<!-- <<< coder-ai-os:managed <<< -->
+EOF
+"$ROOT/bin/coder-ai-os" sync "$managed_docs" >/dev/null
+has 'project-owned root rule' "$managed_docs/AGENTS.md"
+has 'project-owned trailing rule' "$managed_docs/AGENTS.md"
+has 'package-owned rule' "$managed_docs/packages/api/AGENTS.md"
+if grep -Rq 'stale generated rule\|stale package rule\|coder-ai-os:managed' "$managed_docs/AGENTS.md" "$managed_docs/packages/api/AGENTS.md"; then
+  fail 'legacy managed instruction blocks were not removed cleanly'
+fi
+has 'packages/api/AGENTS.md' "$managed_docs/.coder-ai/local/MONOREPO.md"
+has 'Repository-owned `AGENTS.md`' "$managed_docs/.coder-ai/local/INSTRUCTIONS.md"
 
 hook_repo="$TMP/hook-repo"; mkdir -p "$hook_repo/.git/hooks"
 cat > "$hook_repo/.git/hooks/post-merge" <<'HOOK'
@@ -230,9 +343,14 @@ done
 # --symbols-all GC: orphaned generated indexes removed; user-authored files kept.
 printf '%s\n' '# unit: ghost  dir: gone/away' '# parent: .ai/PROJECT_SNAPSHOT.md  regenerate: x' \
   > "$mono/.ai/symbols/ghost.tsv"
+mkdir -p "$mono/.ai/symbols/gone"
+printf '%s\n' '# task-scoped baseline — Generated by .coder-ai/scripts/update-ai-context.sh' \
+  'gone/away/file.py	function	ghost	1' > "$mono/.ai/symbols/gone/away.baseline"
 printf 'user notes\n' > "$mono/.ai/symbols/user-notes.tsv"
 (cd "$mono" && bash "$ROOT/scripts/update-ai-context.sh" --symbols-all >/dev/null)
 [ ! -e "$mono/.ai/symbols/ghost.tsv" ] || fail 'orphaned generated index not removed'
+[ ! -e "$mono/.ai/symbols/gone/away.baseline" ] || fail 'renamed-unit baseline not removed'
+[ -f "$mono/.ai/symbols/packages/api.baseline" ] || fail 'active-unit baseline was removed'
 [ -f "$mono/.ai/symbols/user-notes.tsv" ] || fail 'user-authored symbols file was removed'
 
 # --changed: symbol-level diff vs git HEAD (added function + new file detected).
@@ -277,7 +395,7 @@ grep -Eq '^\| run_pipeline \| function \| 3 \|$' "$nest/.ai/symbols/src/sat/back
 # Verbosity is behavioral: low omits the narration clause; an unknown value fails --check.
 if command -v python3 >/dev/null 2>&1; then
   vb="$TMP/verbosity-sandbox"; mkdir -p "$vb"
-  cp -r "$ROOT/bin" "$ROOT/config" "$ROOT/templates" "$ROOT/skills" "$ROOT/shared" \
+  cp -r "$ROOT/bin" "$ROOT/config" "$ROOT/templates" "$ROOT/skills" \
         "$ROOT/protocol" "$ROOT/claude" "$ROOT/codex" "$vb/" 2>/dev/null
   rm -f "$vb/config/local.yaml"
   sed -i.bak 's/^verbosity: medium$/verbosity: low/' "$vb/config/user.yaml" && rm -f "$vb/config/user.yaml.bak"
