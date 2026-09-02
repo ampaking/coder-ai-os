@@ -224,6 +224,21 @@ def render(cfg, tool):
              "Never claim success without an observed validation run. A pure question = "
              "explain first.")
     L.append("")
+    # 2c. Commit handoff — what to OUTPUT on a commit request; execution stays forbidden
+    #     by the guardrails above, so this renders the positive half of that rule.
+    ch = wf.get("commit_handoff") or {}
+    if ch:
+        L.append("## Commit handoff — on request, output only (human runs git)")
+        L.append("Asked to commit: split the diff into small coherent commits, <="
+                 + str(ch.get("max_files_per_commit", 3)) +
+                 " related files per `git add`; emit paste-ready `git add <files>` + "
+                 "`git commit -m \"...\"` blocks in apply order. Message: one-line, "
+                 "human-toned, Conventional prefix (fix/feat/docs/test/refactor/chore)" +
+                 ("; in monorepos add the package scope, e.g. `fix(api): ...`"
+                  if ch.get("monorepo_scope") else "") +
+                 ". Never mix unrelated concerns or generated artifacts with source in "
+                 "one commit. Never execute the commands.")
+        L.append("")
     # 2b. Optional profile line — rendered ONLY when languages/style are set, so it
     #     costs zero tokens by default. Experience is included only when shown.
     langs = usr.get("languages") or []
