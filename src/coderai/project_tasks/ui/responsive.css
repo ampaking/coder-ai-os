@@ -1,0 +1,93 @@
+.map-stage svg {
+  display: block;
+  min-width: 0;
+}
+
+.row-action {
+  min-height: 44px;
+  padding: 8px 11px;
+}
+
+.action-panel input,
+.action-panel select,
+#correctionForm input,
+#correctionForm select {
+  min-height: 44px;
+}
+
+.check-row {
+  min-height: 44px;
+}
+
+.check-row input {
+  width: 44px;
+  height: 44px;
+  margin: 0 8px 0 0;
+  accent-color: var(--green);
+}
+
+.mobile-cell-label { display: none; }
+
+@media (max-width: 850px) {
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  table,
+  tbody,
+  tr,
+  td {
+    display: block;
+    width: 100%;
+  }
+
+  thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  tbody tr {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  td {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    gap: 8px;
+    padding: 8px;
+    border: 0;
+  }
+
+  .mobile-cell-label {
+    display: block;
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  td:nth-child(3) small {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+}

@@ -1,0 +1,18 @@
+.tab {
+  min-height: 44px;
+}
+
+.tab:focus-visible {
+  color: var(--text);
+  border-color: var(--cyan);
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(100, 216, 255, 0.18);
+}
+
+@media (max-width: 850px) {
+  .tabs {
+    overflow: visible;
+    flex-wrap: wrap;
+  }
+}
