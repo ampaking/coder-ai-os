@@ -349,7 +349,7 @@ async function authManual(browser, request) {
   try {
     await page.goto(request.url, { waitUntil: "domcontentloaded", timeout: request.navigationTimeoutMs || 30000 });
     process.stderr.write("VAL: complete authentication in the opened browser window.\n");
-    await page.locator(request.successCheck).first().waitFor({ state: "visible", timeout: request.authTimeoutMs || 600000 });
+    await page.locator(request.successCheck).first().waitFor({ state: "visible", timeout: request.manualTimeoutMs || 600000 });
     await fs.mkdir(request.outDir, { recursive: true });
     const evidence = path.join(request.outDir, "manual-success.png");
     await page.screenshot({ path: evidence, fullPage: true, mask: [page.locator('input[type="password"]')] });
