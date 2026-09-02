@@ -54,7 +54,7 @@ val_run_has_dark_theme() {
   local file
   [ "$VAL_DRIVER" != remote ] || return 0
   while IFS= read -r -d '' file; do
-    if awk 'BEGIN{IGNORECASE=1} /dark:|prefers-color-scheme[[:space:]]*:[[:space:]]*dark|data-theme[^>]*dark|class[^>]*dark|--[[:alnum:]_-]*dark/ {found=1; exit} END {exit(found ? 0 : 1)}' "$file"; then return 0; fi
+    if awk 'BEGIN{IGNORECASE=1} /dark:|prefers-color-scheme[[:space:]]*:[[:space:]]*dark|data-theme[^>]*(dark|black)|class[^>]*dark|--[[:alnum:]_-]*dark/ {found=1; exit} END {exit(found ? 0 : 1)}' "$file"; then return 0; fi
   done < <(find "$VAL_PROJECT_DIR" \
     \( -name .git -o -name .coder-ai -o -name .ai -o -name node_modules -o -name vendor \) -prune -o \
     -type f \( -name '*.css' -o -name '*.scss' -o -name '*.html' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' -o -name '*.svelte' -o -name '*.twig' -o -name '*.erb' -o -name '*.php' \) -print0)
@@ -191,6 +191,13 @@ val_run() {
   for shot in "$round_dir/shots/"*.png; do [ ! -f "$shot" ] || cp "$shot" "$run_dir/final/shots/"; done
   if val_report "$results" "$report" "$manifest" "$VAL_DRIVER" "$VAL_BROWSER_MODE" "$round" "$(if [ -n "$blocked_reason" ]; then printf 2; fi)"; then status=0; else status=$?; fi
   cp "$report" "$run_dir/report.md"
+  local evidence_outcome='warning'
+  [ "$status" -eq 0 ] && evidence_outcome='passed'
+  { [ "$status" -eq 1 ] || [ "$status" -eq 2 ]; } && evidence_outcome='failed'
+  if command -v coder-ai-os >/dev/null 2>&1; then
+    coder-ai-os tasks validation-result --collector val --run-id "$VAL_RUN_ID" \
+      --outcome "$evidence_outcome" >/dev/null 2>&1 || true
+  fi
   val_run_cleanup
   trap - EXIT INT TERM
   printf 'VAL report: %s\n' "$report"

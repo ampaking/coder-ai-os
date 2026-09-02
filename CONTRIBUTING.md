@@ -22,5 +22,7 @@ Safety lives in `config/safety.yaml` + `claude/permissions.json`. The compiler d
 
 ## Testing
 The scripts are validated by running them against a sandbox `HOME` and a throwaway git repo
-(never your real `~`). Syntax-check with `bash -n` and `python3 -c "import ast; ..."`.
-Regenerate an installed project's snapshot with `.coder-ai-os-script/update-ai-context.sh` when structure changes.
+(never your real `~`). Run Python tests with
+`PYTHONPATH=src python3 -m unittest discover -s tests -p '*_test.py'`. Syntax-check shell with
+`bash -n` and the runtime with `PYTHONPATH=src python3 -m compileall -q src/coderai tests`.
+Regenerate an installed project's snapshot with `.coder-ai/scripts/update-ai-context.sh` when structure changes.

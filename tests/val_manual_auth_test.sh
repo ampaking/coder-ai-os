@@ -45,6 +45,6 @@ run_dir="$VAL_STATE_DIR/runs/manual-test"
 mkdir -p "$run_dir"
 state="$(val_auth_manual "$run_dir")"
 [ "$state" = "$(cd "$VAL_STATE_DIR" && pwd -P)/auth.json" ] || fail 'manual auth returned the wrong state path'
-[ "$(stat -f '%Lp' "$state" 2>/dev/null || stat -c '%a' "$state")" = 600 ] || fail 'manual auth state mode is not 600'
+[ "$(stat -c '%a' "$state" 2>/dev/null || stat -f '%Lp' "$state")" = 600 ] || fail 'manual auth state mode is not 600'
 
 printf '%s\n' 'PASS: VAL manual authentication orchestration'

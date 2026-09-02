@@ -4,9 +4,22 @@ atomic_tasks: true
 self_review: true
 delegation:
   min_tier: feature
-  mode: independent read-only exploration and review only
+  mode: native same-provider subagents plus direct cross-provider CLI handoff
   writes: serial in the main task
+native_orchestration:
+  enabled: true
+  entrypoints: normal claude or codex interactive session
+  controller: the user-selected parent session
+  routing: capability and task risk, never provider loyalty
+  cross_provider: invoke the other installed native CLI directly, never through coder-ai-os run or MCP
+  review: prefer the opposite provider in read-only mode; repair and re-review until clean
+  questions: block only for material human decisions; otherwise state the safe assumption and continue
 architecture_review: false
+# On an explicit commit request: output paste-ready commands only (git writes stay human-run).
+commit_handoff:
+  max_files_per_commit: 3
+  message: conventional one-liner
+  monorepo_scope: true
 protocol_file: AI_DEV_PROTOCOL.md
 clarify:
   mode: by-exception

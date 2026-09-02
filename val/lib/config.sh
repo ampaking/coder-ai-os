@@ -45,7 +45,7 @@ val_config_validate() {
     and (.auth == null or ((.auth.allowedOrigins // []) | type == "array" and all(.[]; type == "string")))
     and (.fixture | type == "object")
     and (.fixture.status | IN("disabled", "required"))
-    and (.fixture.adapter == null or (.fixture.adapter | type == "string" and startswith(".coder-ai-os-script/val-fixtures/")))
+    and (.fixture.adapter == null or (.fixture.adapter | type == "string" and startswith(".coder-ai/scripts/val-fixtures/")))
     and (.maxShots | type == "number" and . >= 1 and floor == .)
     and (.container | type == "object")
     and (.container.service == null or (.container.service | type == "string" and length > 0))

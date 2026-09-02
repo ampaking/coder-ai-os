@@ -7,7 +7,7 @@ val_fixture_prepare() {
   status="$(val_config_get '.fixture.status // "disabled"')"
   [ "$status" != disabled ] || return 0
   adapter="$(val_config_get '.fixture.adapter')"
-  case "$adapter" in .coder-ai-os-script/val-fixtures/*.mjs) ;; *) val_die 3 'fixture adapter must be generated under .coder-ai-os-script/val-fixtures'; return 3 ;; esac
+  case "$adapter" in .coder-ai/scripts/val-fixtures/*.mjs) ;; *) val_die 3 'fixture adapter must be generated under .coder-ai/scripts/val-fixtures'; return 3 ;; esac
   adapter="$VAL_PROJECT_DIR/$adapter"
   [ -f "$adapter" ] || { val_die 3 "fixture adapter is missing: ${adapter#"$VAL_PROJECT_DIR/"}"; return 3; }
   output="$VAL_STATE_DIR/fixture.json"

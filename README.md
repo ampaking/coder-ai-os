@@ -58,6 +58,7 @@ weakened.
 - **Reports Your Way** — every task ends with a goal review in your reply format (flow-graph, prose, or minimal); the final review isn't clipped by the token budget
 - **Verify & Budget** — a small, budget-enforced instruction block; prove what every CLI actually loads with one command
 - **Close the Visual Loop** — VAL automatically captures deterministic responsive screenshots after UI diffs, runs accessibility/layout/pixel checks, applies allowlisted fixes, and emits one evidence-linked report without installing anything in the application repo
+- **Remember Project Tasks Privately** — setup/sync enables content-free task lifecycle and validation evidence in that project's ignored local SQLite database; prompts, source, paths, and terminal output stay excluded
 
 ## What's new
 
@@ -122,8 +123,7 @@ coder-ai-os is split into a **global** layer (how *you* work) and a **per-repo**
 #    (symlinked into ~/.local/bin).
 cd ~/coder-ai-os && ./install.sh
 
-# 2. PER-REPO — run inside any project. Writes that repo's rules, commands,
-#    skills, standards, project navigator, and memory into the repo itself (nothing global).
+# 2. PER-REPO — run inside any project. Keeps generated runtime state clone-local.
 cd ~/your-app && coder-ai-os setup
 ```
 
@@ -133,7 +133,45 @@ To safely refresh the complete harness in an existing repository, use one comman
 cd ~/your-app && coder-ai-os sync
 ```
 
-`sync` updates only coder-ai-os managed/generated regions and keeps user guidance, Codex overrides,
+After sync, use the normal native CLI. The model selected by that CLI remains the controller:
+
+```sh
+cd ~/your-app
+claude
+# or
+codex
+```
+
+Then provide the complete task normally. For feature/epic work, the generated instructions make that
+session define acceptance criteria, create ordered atomic tasks, keep writes serial, validate each task,
+and request an independent review before moving on.
+
+Same-provider work uses native subagents. Cross-provider work invokes the other installed native CLI
+directly: Claude can run `codex exec`, and Codex can run `claude -p`. No `coder-ai-os run`, daemon,
+router, or MCP bridge is required. The opposite provider reviews in read-only/plan mode; findings return
+to the implementing context for repair, validation, and re-review.
+
+The parent does not invent unavailable model names: an explicitly configured model may be used, otherwise
+the delegated CLI uses its own configured default. If the other CLI is unavailable or unauthenticated, the
+session reports that cross-provider review was not performed and uses a fresh same-provider reviewer.
+Only material security/data/API/schema/production decisions pause for the human; safe reversible ambiguity
+is recorded as an assumption and work continues. The final response remains a human-reviewable evidence
+report, not an automatic commit or deployment.
+
+Native fallback is bounded: retry one transient timeout/429, optionally try a configured known model,
+then return to a fresh same-provider subagent/context. A missing, unauthenticated, quota-exhausted, or
+user-disabled second provider does not block ordinary work. Every handoff is preceded by a compact
+`CURRENT.md` checkpoint, so a fresh normal Claude or Codex session can resume. A native CLI cannot replace
+its own already-terminated parent process; automatic failover at that exact boundary would require an
+external controller, which coder-ai-os deliberately does not pretend the normal CLI provides.
+
+`sync` never injects into repository-owned `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, including package-level
+files. It puts its compiled guidance in `.coder-ai/local/INSTRUCTIONS.md`; the global native instructions
+load that sidecar after project guidance, and `.git/info/exclude` keeps it clone-local without changing
+the shared `.gitignore`. Sync also removes only legacy coder-ai-os marker blocks from project instruction
+files, so upstream changes remain visible and pulls do not conflict with local generated guidance.
+
+`sync` keeps user guidance, Codex overrides,
 `.ai/memory/` task state, and the maintained `.ai/PROJECT_NAVIGATOR.md`. Missing navigators are
 seeded for projects configured by older versions. It also additively creates or updates `.codex/config.toml`, preserving
 existing top-level Codex values and unrelated TOML content. Every supported agent follows the same tiered `AI_DEV_PROTOCOL.md`: plan with intent and Definition
@@ -148,6 +186,13 @@ permission profile nor sandbox mode. Routine project-local work proceeds inside 
 attempts outside it still require the host's approval. Claude uses auto mode with hard deny rules. Existing user or
 project safety values always win, and coder-ai-os never enables unrestricted execution automatically.
 
+Standing approvals remain native and private. In Claude CLI, choosing **Yes, and don't ask again** writes
+the narrow allow rule to `.claude/settings.local.json`; sync excludes and never modifies that file. In Codex,
+accepting an allow-list proposal writes the prefix to `~/.codex/rules/default.rules`; coder-ai-os never
+overwrites it. Sync pre-allows only coder-ai-os's exact atlas helper and cross-provider review prefixes.
+Project test/lint commands may ask once, then the native CLI owns the reviewed persistent rule. Broad shell,
+package-manager, Git-write, destructive, secret, and production permissions are never learned automatically.
+
 > **`coder-ai-os: command not found`?** The `coder-ai-os` command only exists *after* step 1
 > (global `./install.sh`) — that step creates the symlink. If it's still not found, `~/.local/bin`
 > isn't on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc), or just call
@@ -156,9 +201,9 @@ project safety values always win, and coder-ai-os never enables unrestricted exe
 Configure any way you like — all produce the same profile:
 
 ```sh
-coder-ai-os init --interactive        # manual wizard
-coder-ai-os init --ai claude|codex    # let an AI interview you (draft → you approve → compile)
-coder-ai-os init --from profile.yaml  # apply a saved profile
+coder-ai-os init --interactive        # profile wizard + initialize the current Git project
+coder-ai-os init --ai claude|codex    # AI profile interview + initialize the current Git project
+coder-ai-os init --from profile.yaml  # apply a saved profile + initialize the current Git project
 ./install.sh --project ~/path/to/repo # set up a repo (rules, commands, skills, standards, memory)
 ```
 
@@ -168,6 +213,47 @@ Docs, architecture, config schema, and the research behind it 👉
 [Development protocol](protocol/AI_DEV_PROTOCOL.md)
 
 Confirm everything is wired: `./install.sh --status` and `coder-ai-os verify`.
+
+## Project Tasks
+
+Project Tasks is a local record of work performed with coding agents. `coder-ai-os setup`, `sync`,
+and direct project installation enable it together with content-free automatic observations.
+It stores structured summaries and AI-session metadata in `.coder-ai/tasks/tasks.sqlite3`, which
+setup adds to the project's `.coder-ai/.gitignore`. Raw prompts, source contents, secrets, commit
+messages, file paths, authors, and employee scores are not collected.
+
+```sh
+coder-ai-os tasks enable                  # enable tasks + safe automatic collection
+coder-ai-os tasks status --json
+coder-ai-os tasks brief --depth quick     # 30-second onboarding; working/deep are also available
+coder-ai-os tasks review                  # evidence for the last seven days
+coder-ai-os tasks open                    # launch the black localhost UI only when requested
+coder-ai-os tasks open --demo             # disposable rich preview; real database unchanged
+coder-ai-os tasks close                   # stop this project's dashboard from another terminal
+coder-ai-os tasks git-links               # review optional task/commit candidates
+coder-ai-os tasks doctor                  # read-only SQLite integrity check
+coder-ai-os tasks repair --yes            # preserve corruption, then create clean local state
+coder-ai-os tasks export                  # safe structured export; session IDs excluded
+coder-ai-os tasks collect disable         # stop automatic hooks until the next sync
+coder-ai-os tasks disable                 # disable tasks until the next setup/sync; preserve history
+coder-ai-os tasks delete --yes            # delete this project's task state
+```
+
+The compiled instructions give every supported agent the same local-only boundary; Claude Code and
+Codex additionally receive the native `project-tasks` skill with the full lifecycle contract. Claude's
+global Stop hook records only that a response ended; it never blocks another response or infers task
+completion. Explicit task and validation events own lifecycle state. `tasks open` starts a loopback-only
+server for that request and stops on exit. Notifications use an explicitly installed, short-lived local scheduler:
+the operating system wakes one bounded analysis/delivery command at 18:00 local time, then it exits.
+Optional Git collection is off by default and contains only hashes, parents, timestamps, file counts,
+and aggregate additions/deletions; candidates require confirmation or rejection in the UI or CLI.
+It is supporting evidence, never a measure of engineering value. The default UI theme is black,
+keyboard-accessible, and responsive; theme emulation never changes the stored project preference.
+The Now, Map, and Review period navigator selects Day, Week, Month, or Year, shows the exact date
+range, and moves backward through project history.
+The Personal Project Guide explains structured evidence without storing questions. Optional
+Codex and Claude buttons run only after one visible confirmation and open the selected agent in an
+external terminal using read-only/plan-only modes; the dashboard does not store model responses.
 
 ## Visual Autonomy Loop (VAL)
 
@@ -213,7 +299,7 @@ criteria, `2` capped/escalated with `BLOCKED.md`, and `3` infrastructure failure
 human-controlled and are promoted only with `val baseline promote --run <task>` after review.
 
 For detected package-based web apps, setup creates a test-only fixture scaffold at
-`.coder-ai-os-script/val-fixtures/<app-id>.mjs`. It is intentionally fail-closed until the project
+`.coder-ai/scripts/val-fixtures/<app-id>.mjs`. It is intentionally fail-closed until the project
 defines its local browser storage state and exact deterministic API responses. Package metadata can
 identify a framework, but cannot safely infer an application's roles, session format, or authorization
 rules. The adapter may write only into its isolated `.coder-ai/val/` app state; VAL rejects symlinks,
@@ -238,7 +324,7 @@ Everything is a setting. Change your reply format, verbosity, token budget, or l
 re-run the interview:
 
 ```sh
-coder-ai-os init --interactive     # re-run any time; re-applies to every agent
+coder-ai-os init --interactive     # re-apply globally + initialize the current Git project
 ```
 
 Or set them directly in a per-machine overlay (`config/local.yaml`), then `./install.sh`:

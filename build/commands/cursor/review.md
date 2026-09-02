@@ -3,4 +3,4 @@
 
 Run the review-only roles on the current diff
 
-Review as Reviewer then Security then Performance then Architecture. Compare the full diff with the original Definition of Done. Report findings with file and line only. Do not edit.
+Compare the diff with the Definition of Done. Always review correctness; add Security, Performance, or Architecture only when the changed surface carries that risk. Use all applicable lenses for high-risk work. Treat tests as bug detectors and report findings with file and line only. Do not edit.

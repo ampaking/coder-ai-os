@@ -8,7 +8,7 @@ graphs: true
 # review is EXEMPT from max_tokens (mid-task replies stay within the cap). Set false to cap all.
 final_review: true
 budget:
-  global_file_max_kb: 3
+  global_file_max_kb: 4
   codex_total_max_kib: 32
 reply_skeletons:
   flow-graph:

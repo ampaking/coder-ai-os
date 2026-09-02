@@ -9,6 +9,8 @@
 #   coder-ai-os init                      personalize your profile (wizard, or --ai claude|codex)
 #   coder-ai-os doctor                    sizes + Codex 32KiB budget + drift + health
 #   coder-ai-os val <command>             run Visual Autonomy Loop in the current repo
+#   coder-ai-os tasks <command>           manage local project tasks and reviews
+#   coder-ai-os run "<task>"              execute, verify, review, and prove a coding task
 #   coder-ai-os verify                    what each agent CLI actually loads
 #   coder-ai-os compile / diff / profile show
 set -euo pipefail
@@ -29,20 +31,34 @@ need(){ command -v "$1" >/dev/null 2>&1 || die "'$1' not found on PATH${2:+ — 
 
 AI_PROMPT='Set up my coder-ai-os profile: read intake/PROFILE_INTERVIEW.md in this repo and follow it exactly — interview me, show a DRAFT profile, wait for my approval, then compile and install. Configure preferences only; never change safety, permissions, or architecture.'
 
+init_project(){
+  local start="$1" root
+  root="$(git -C "$start" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$root" ] || { echo "coder-ai-os: init completed (no Git project to initialize)."; return 0; }
+  "$REPO_DIR/install.sh" --project "$root" --yes
+}
+
 cmd_init(){
-  local mode="${1:-}"; shift || true
+  local mode="${1:-}" start="$PWD"; shift || true
   case "$mode" in
-    --interactive|--manual) exec "$REPO_DIR/bin/setup" "$@" ;;
+    --interactive|--manual)
+      "$REPO_DIR/bin/setup" "$@"
+      init_project "$start"
+      ;;
     --ai)
       local tool="${1:-}"; [ -n "$tool" ] || die "init --ai needs a tool: claude | codex"
       need "$tool" "install its CLI first"
-      cd "$REPO_DIR" && exec "$tool" "$AI_PROMPT" ;;
+      ( cd "$REPO_DIR" && "$tool" "$AI_PROMPT" )
+      init_project "$start"
+      ;;
     --from|--config)
       local f="${1:-}"; [ -n "$f" ] || die "init $mode needs a profile file"
       [ -f "$f" ] || die "no such file: $f"
       cp "$f" "$LOCAL"; echo "applied $f -> config/local.yaml"
       need python3; python3 "$REPO_DIR/bin/compile" --validate || die "profile failed validation"
-      exec "$REPO_DIR/install.sh" ;;
+      "$REPO_DIR/install.sh"
+      init_project "$start"
+      ;;
     *) die "init needs a mode: --interactive | --ai <tool> | --from <file>" ;;
   esac
 }
@@ -86,7 +102,7 @@ cmd_verify(){
   fi
   echo "  --- this repo (project-scoped artifacts from --project): $PWD ---"
   local p
-  for p in AGENTS.md CLAUDE.md GEMINI.md AI_DEV_PROTOCOL.md \
+  for p in .coder-ai/local/INSTRUCTIONS.md AI_DEV_PROTOCOL.md .coder-ai/PROTOCOL_PHASES.md \
            .cursor/rules/coder-ai-os.mdc .cursor/commands/task.md \
            .github/copilot-instructions.md .claude/settings.json .claude/commands/task.md \
            .claude/agents/reviewer.md .claude/agents/security.md \
@@ -99,7 +115,7 @@ cmd_verify(){
     if [ -e "$PWD/$p" ]; then echo "    ● $p"; else echo "    ○ $p"; missing=$((missing+1)); fi
   done
   echo "  (Claude/Codex/Gemini read your PERSONAL block from ~ in every repo — see the top"
-  echo "   section; the project files above are the repo-scoped extras from 'install.sh --project'.)"
+  echo "   section; clone-local instructions live under excluded .coder-ai/local/.)"
   [ "$strict" = 0 ] || [ "$missing" = 0 ]
 }
 
@@ -127,6 +143,8 @@ case "${1:-help}" in
   setup)       shift; cmd_setup "$@" ;;
   sync)        shift; cmd_setup "$@" ;;
   val)         shift; if [ -x "$PWD/.coder-ai/val/run" ]; then exec "$PWD/.coder-ai/val/run" "$@"; fi; exec "$REPO_DIR/val/val" "$@" ;;
+  tasks)       shift; need python3; PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.project_tasks.cli "$@" ;;
+  run)         shift; need python3; PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.orchestrator "$@" ;;
   init)        shift; cmd_init "$@" ;;
   compile)     need python3; exec python3 "$REPO_DIR/bin/compile" ;;
   doctor)      cmd_doctor ;;

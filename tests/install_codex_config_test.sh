@@ -118,6 +118,19 @@ grep -q '^## Definition of done$' "$fresh/.ai/memory/CURRENT.md" || fail 'checkp
 grep -q '^## Validation evidence (command + observed)$' "$fresh/.ai/memory/CURRENT.md" || fail 'checkpoint lacks validation evidence'
 [ -x "$fresh/.coder-ai/val/run" ] || fail 'setup did not install the project-local VAL wrapper'
 [ -f "$fresh/.agents/skills/val-fix/SKILL.md" ] || fail 'setup did not install the automatic VAL skill'
+[ -f "$fresh/.agents/skills/native-orchestration/SKILL.md" ] || fail 'setup did not install native orchestration for Codex'
+[ -f "$fresh/.agents/skills/debugging/SKILL.md" ] || fail 'setup did not install debugging guidance for Codex'
+grep -qF 'red-before/green-after' "$fresh/.agents/skills/debugging/SKILL.md" \
+  || fail 'installed debugging skill lacks test-sensitivity evidence'
+[ -f "$fresh/.claude/skills/native-orchestration/SKILL.md" ] || fail 'setup did not install native orchestration for Claude'
+grep -qF 'direct Claude-to-Codex or Codex-to-Claude CLI handoffs' "$fresh/.agents/skills/native-orchestration/SKILL.md" \
+  || fail 'native orchestration skill lacks direct provider handoff'
+grep -qF 'prefix_rule(pattern=["claude", "-p", "--permission-mode", "plan"], decision="allow")' "$fresh/.codex/rules/coder-ai-os.rules" \
+  || fail 'Codex native Claude handoff permission rule is missing'
+[ "$(jq -r '.permissions.allow | index("Bash(codex exec --cd * --sandbox read-only:*)")' "$fresh/.claude/settings.json")" != null ] \
+  || fail 'Claude native Codex handoff permission is missing'
+jq -e '.permissions.deny | index("Bash(codex exec *--dangerously-bypass-approvals-and-sandbox*:*)") != null' \
+  "$fresh/.claude/settings.json" >/dev/null || fail 'Claude does not deny unsafe Codex bypass handoff'
 [ "$(jq -r '.permissions.defaultMode' "$fresh/.claude/settings.json")" = auto ] || fail 'fresh project did not receive Claude auto mode'
 jq -e '.permissions.deny | index("Read(**/.env.*)") != null and index("Bash(git push:*)") != null' \
   "$fresh/.claude/settings.json" >/dev/null || fail 'fresh project lacks Claude secret/git deny rules'
@@ -179,15 +192,33 @@ if command -v jq >/dev/null 2>&1; then
   grep -qF 'my custom script' "$own_home/.claude/statusline.sh" || fail 'user statusline.sh was overwritten'
 
   hook_repo="$TMP/existing-hook-repo"; mkdir -p "$hook_repo/.claude"
-  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"prompt","prompt":"user stop hook"}]}]}}' \
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"prompt","prompt":"user stop hook"}]},{"hooks":[{"type":"prompt","prompt":"remind to run the test suite before reporting done — old generated hook"}]},{"hooks":[{"type":"prompt","prompt":"first determine whether the session executed a repository task that changed code or configuration; keep working and do not approve the stop"}]}],"PostToolUse":[{"matcher":"Edit|Write|MultiEdit|Bash","hooks":[{"type":"command","command":"coder-ai-os tasks hook claude"}]}]}}' \
     > "$hook_repo/.claude/settings.json"
   sync_repo "$hook_repo"
   jq -e '.hooks.Stop | length == 2' "$hook_repo/.claude/settings.json" >/dev/null \
-    || fail 'generated Stop hook was not merged with the user Stop hook'
-  jq -e '.hooks.PostToolUse | any(.[]; any(.hooks[]; .prompt | contains("watchGlobs")))' \
-    "$hook_repo/.claude/settings.json" >/dev/null || fail 'VAL UI-change hook was not installed'
+    || fail 'generated Stop hooks were not merged with the user Stop hook'
+  jq -e '.hooks.PostToolUse | any(.[]; .matcher == "Edit|Write|MultiEdit" and any(.hooks[]; .type == "command" and .command == ".coder-ai/scripts/val-post-edit.py"))' \
+    "$hook_repo/.claude/settings.json" >/dev/null || fail 'deterministic VAL edit marker hook was not installed'
+  if jq -e '.hooks.PostToolUse | any(.[]; any(.hooks[]; .type == "prompt"))' \
+    "$hook_repo/.claude/settings.json" >/dev/null; then fail 'VAL edit hook still invokes a model'; fi
   jq -e '.hooks.Stop | any(.[]; any(.hooks[]; .prompt == "user stop hook"))' \
     "$hook_repo/.claude/settings.json" >/dev/null || fail 'user Stop hook was replaced'
+  jq -e '
+    .hooks.Stop | any(.[]; any(.hooks[]; .command == "coder-ai-os tasks hook claude"))
+  ' "$hook_repo/.claude/settings.json" >/dev/null || fail 'Project Tasks Stop collector was not installed'
+  if jq -e '
+    .hooks.Stop | any(.[]; any(.hooks[];
+      ((.prompt // "") | contains("first determine whether the session executed a repository task"))
+      or ((.prompt // "") | contains("keep working and do not approve the stop"))))
+  ' "$hook_repo/.claude/settings.json" >/dev/null; then
+    fail 'stale blocking completion prompt survived sync'
+  fi
+  if jq -e '
+    .hooks.PostToolUse // [] | any(.[];
+      any(.hooks[]; .command == "coder-ai-os tasks hook claude"))
+  ' "$hook_repo/.claude/settings.json" >/dev/null; then
+    fail 'Project Tasks collector still runs after every tool use'
+  fi
   hook_first="$(cksum "$hook_repo/.claude/settings.json")"
   sync_repo "$hook_repo"
   [ "$(cksum "$hook_repo/.claude/settings.json")" = "$hook_first" ] \

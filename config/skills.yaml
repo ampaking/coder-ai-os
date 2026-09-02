@@ -7,6 +7,9 @@ enabled:
   - api-change-review
   - monorepo-change
   - task-lifecycle
+  - native-orchestration
+  - project-tasks
+  - release-handoff
   - val-capture
   - val-verify
   - val-judge

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Release Handoff"
+  short_description: "Plan small commits and safe release next steps"
+  default_prompt: "Use $release-handoff to prepare small human-run commits and repository-evidenced next steps."
+policy:
+  allow_implicit_invocation: true

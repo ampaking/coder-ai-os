@@ -40,7 +40,7 @@ run_auth 'test@example.invalid' 'fixture-password' > "$TMP/success-1.log"
 run_auth 'test@example.invalid' 'fixture-password' > "$TMP/success-2.log"
 [ "$(curl --fail --silent "$url/count")" -eq 1 ] || fail 'valid state was not reused'
 state="$project/.coder-ai/val/auth.json"
-[ "$(stat -f '%Lp' "$state" 2>/dev/null || stat -c '%a' "$state")" = 600 ] || fail 'reused state mode is not 600'
+[ "$(stat -c '%a' "$state" 2>/dev/null || stat -f '%Lp' "$state")" = 600 ] || fail 'reused state mode is not 600'
 
 rm -f "$state"
 set +e

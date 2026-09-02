@@ -27,10 +27,10 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 project="$TMP/project"
-mkdir -p "$project/.coder-ai/val" "$project/.coder-ai-os-script/val-fixtures"
-jq --arg url "$url" '.env="remote" | .browserMode="local" | .url=$url | .routes=["/dashboard"] | .themes=["light"] | .viewports=[[375,812]] | .auth=null | .fixture={status:"required",adapter:".coder-ai-os-script/val-fixtures/root.mjs"}' \
+mkdir -p "$project/.coder-ai/val" "$project/.coder-ai/scripts/val-fixtures"
+jq --arg url "$url" '.env="remote" | .browserMode="local" | .url=$url | .routes=["/dashboard"] | .themes=["light"] | .viewports=[[375,812]] | .auth=null | .fixture={status:"required",adapter:".coder-ai/scripts/val-fixtures/root.mjs"}' \
   "$ROOT/val/templates/val.config.json" > "$project/.coder-ai/val/config.json"
-cat > "$project/.coder-ai-os-script/val-fixtures/root.mjs" <<'EOF'
+cat > "$project/.coder-ai/scripts/val-fixtures/root.mjs" <<'EOF'
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
@@ -44,7 +44,7 @@ const authState = path.join(args.state, "fixture-auth.json");
 fs.writeFileSync(authState, JSON.stringify({cookies:[],origins:[{origin,localStorage:[{name:"val-auth",value:"ok"}]}]}));
 fs.writeFileSync(args.output, JSON.stringify({version:1,authState,routes:[{url:`${origin}/api/profile`,method:"GET",status:200,contentType:"application/json",body:{role:"fixture-admin"}}]}));
 EOF
-chmod +x "$project/.coder-ai-os-script/val-fixtures/root.mjs"
+chmod +x "$project/.coder-ai/scripts/val-fixtures/root.mjs"
 
 set +e
 output="$(cd "$project" && VAL_BROWSER_CACHE_DIR="${VAL_TEST_BROWSER_CACHE_DIR:-/tmp/coder-ai-os-val-browser-fixture-1.62.1}" "$ROOT/val/val" run --task fixture-e2e 2>&1)"
@@ -55,13 +55,13 @@ run_dir="$project/.coder-ai/val/runs/fixture-e2e"
 [ -f "$run_dir/manifest.json" ] || fail 'fixture run manifest missing'
 [ "$(jq -r '.exitCode' "$run_dir/manifest.json")" -ne 3 ] || fail 'fixture run ended as infrastructure failure'
 [ "$(curl --fail --silent "$url/count")" -eq 0 ] || fail 'fixture API request escaped to the live test backend'
-[ "$(stat -f '%Lp' "$project/.coder-ai/val/fixture.json" 2>/dev/null || stat -c '%a' "$project/.coder-ai/val/fixture.json")" = 600 ] || fail 'fixture contract mode is not 600'
-[ "$(stat -f '%Lp' "$project/.coder-ai/val/fixture-auth.json" 2>/dev/null || stat -c '%a' "$project/.coder-ai/val/fixture-auth.json")" = 600 ] || fail 'fixture auth state mode is not 600'
+[ "$(stat -c '%a' "$project/.coder-ai/val/fixture.json" 2>/dev/null || stat -f '%Lp' "$project/.coder-ai/val/fixture.json")" = 600 ] || fail 'fixture contract mode is not 600'
+[ "$(stat -c '%a' "$project/.coder-ai/val/fixture-auth.json" 2>/dev/null || stat -f '%Lp' "$project/.coder-ai/val/fixture-auth.json")" = 600 ] || fail 'fixture auth state mode is not 600'
 
 outside="$TMP/outside-auth.json"
 printf '%s\n' '{"cookies":[],"origins":[]}' > "$outside"
-sed -i.bak "s|const authState = path.join(args.state, \"fixture-auth.json\");|const authState = \"$outside\";|" "$project/.coder-ai-os-script/val-fixtures/root.mjs"
-rm "$project/.coder-ai-os-script/val-fixtures/root.mjs.bak"
+sed -i.bak "s|const authState = path.join(args.state, \"fixture-auth.json\");|const authState = \"$outside\";|" "$project/.coder-ai/scripts/val-fixtures/root.mjs"
+rm "$project/.coder-ai/scripts/val-fixtures/root.mjs.bak"
 set +e
 (cd "$project" && "$ROOT/val/val" run --task fixture-escape) > "$TMP/escape.log" 2>&1
 status=$?

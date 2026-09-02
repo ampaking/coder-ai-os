@@ -8,4 +8,4 @@ navigator: .ai/PROJECT_NAVIGATOR.md
 capture: durable facts, decisions, and gotchas — one file per fact with a one-line description
 prune: remove memories contradicted by the code or superseded by newer facts
 checkpoint: original intent, Definition of Done, active task, decisions, changed files, next action, blockers, and observed validation
-load: read INDEX.md first; resume from CURRENT.md; load a full memory only when relevant
+load: read CURRENT.md only to resume active work; query INDEX.md and load history only when relevant
