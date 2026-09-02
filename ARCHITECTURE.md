@@ -33,8 +33,8 @@ draft → review → compile) · `--from profile.yaml`.
 |---|---|---|---|
 | **Profile** | experience, languages, style (coding.*), reply format | `config/user.yaml` (+ `profiles/<lang>.yaml`) | done |
 | **Safety** | non-negotiable guardrails (`.env`/git/sudo/deploy) | `config/safety.yaml` + `claude/permissions.json` | done |
-| **Workflow** | intent → plan → atomic tasks → validate → review | `config/workflow.yaml` + `protocol/AI_DEV_PROTOCOL.md` | done (instructional, by design) |
-| **Context** | orient L1–L4, snapshot, index, retrieval policy + budgets | `config/context.yaml` · project `.coder-ai-os-script/update-ai-context.sh` | done |
+| **Workflow** | native parent → atomic tasks → direct provider handoff → validate → cross-review | `config/workflow.yaml` + `skills/native-orchestration/` + `protocol/AI_DEV_PROTOCOL.md` | done (instructional, native CLI) |
+| **Context** | orient L1–L4, snapshot, index, retrieval policy + budgets | `config/context.yaml` · project `.coder-ai/scripts/update-ai-context.sh` | done |
 | **Skill** | lazy-load one skill per trigger | `config/skills.yaml` + `skills/<id>/SKILL.md` | done |
 | **Adapter** | emit per-tool files (5 tools) | `bin/compile` render/footers | done |
 | **Audit** | budget, drift, conflicts, skills, health | `coder-ai-os doctor` | done |
@@ -84,11 +84,12 @@ skills/            skills/<id>/SKILL.md — full skill text (loaded on trigger)
 bin/compile        the harness compiler (config → build/*.md + build/project/, --check/--validate/--doctor)
 bin/setup          manual preference wizard
 bin/coder-ai-os    unified CLI (init/compile/doctor/diff/profile)
+src/coderai/       Python runtime (orchestrator + local Project Tasks application)
 build/             compiled per-tool blocks + build/project/ repo-scoped artifacts (committed)
 install.sh         inject global blocks (+ --project drops repo-scoped harness artifacts)
 intake/            AI interview instructions (draft → review → compile)
 scripts/           update-ai-context.sh — zero-dep repo snapshot generator
-protocol/          AI_DEV_PROTOCOL.md — the tiered development workflow
+protocol/          AI_DEV_PROTOCOL.md — tiers·floor·gates (always) + PROTOCOL_PHASES.md — feature/epic pipeline (loaded on demand)
 docs/              intake, harness coverage, deeper guides
 .ai/coder-ai-os/      architecture roadmap (plan.md)
 ```
