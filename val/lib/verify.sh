@@ -36,13 +36,13 @@ val_verify() {
         | ([ $browser[0].shots[].checks[]
             | select(.id == ($criterion.checkId // "") or (.id | startswith(($criterion.checkId // "") + "-"))) ]) as $checks
         | $criterion + {status:
-            if $criterion.active == false then $criterion.status
+            (if $criterion.active == false then $criterion.status
             elif $criterion.method == "manual" then "manual"
             elif any($checks[]; .status == "blocked") then "fail"
             elif any($checks[]; .status == "fail") then "fail"
             elif any($checks[]; .status == "manual") then "manual"
             elif ($checks | length) > 0 and all($checks[]; .status == "pass") then "pass"
-            else $criterion.status end}
+            else $criterion.status end)}
       ] as $resolvedCriteria
     | [ $resolvedCriteria[]
         | select(.active != false and (.method == "manual" or (.status == "manual" and (.checkId // "") == "")))
