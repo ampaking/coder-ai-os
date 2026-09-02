@@ -25,8 +25,8 @@ grep -q '^auth.json$' "$node_project/.coder-ai/val/.gitignore" || fail 'VAL runt
 [ "$(jq -r '.apps | length' "$node_project/.coder-ai/val/apps.json")" = 1 ] || fail 'single web app registry missing'
 [ "$(jq -r '.apps[0].id' "$node_project/.coder-ai/val/apps.json")" = root ] || fail 'root app id is unstable'
 [ -f "$node_project/.coder-ai/val/apps/root/config.json" ] || fail 'isolated root app config missing'
-[ -x "$node_project/.coder-ai-os-script/val-fixtures/root.mjs" ] || fail 'test-auth fixture scaffold missing'
-if node "$node_project/.coder-ai-os-script/val-fixtures/root.mjs" 2>"$TMP/fixture-error"; then fail 'generated fixture scaffold did not fail closed'; fi
+[ -x "$node_project/.coder-ai/scripts/val-fixtures/root.mjs" ] || fail 'test-auth fixture scaffold missing'
+if node "$node_project/.coder-ai/scripts/val-fixtures/root.mjs" 2>"$TMP/fixture-error"; then fail 'generated fixture scaffold did not fail closed'; fi
 grep -q 'Never read production credentials' "$TMP/fixture-error" || fail 'fixture scaffold lacks safe completion guidance'
 
 before="$(cksum "$node_config")"

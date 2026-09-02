@@ -27,7 +27,7 @@ fail() {
 
 [ ! -L "$PROJECT/.coder-ai" ] || fail 'refusing symlink: .coder-ai'
 [ ! -L "$STATE_DIR" ] || fail 'refusing symlink: .coder-ai/val'
-[ ! -L "$PROJECT/.coder-ai-os-script" ] || fail 'refusing symlink: .coder-ai-os-script'
+[ ! -L "$PROJECT/.coder-ai/scripts" ] || fail 'refusing symlink: .coder-ai/scripts'
 command -v jq >/dev/null 2>&1 || fail 'jq is required for automatic VAL project detection'
 
 has_ui_files() {
@@ -102,13 +102,13 @@ write_app_config_once() {
   [ "$relative" = . ] || watch="$relative/$watch"
   temporary="$(mktemp "$app_dir/.config.XXXXXX")"
   jq -n --arg serve "$serve" --arg watch "$watch" --arg appId "$app_id" --arg root "$relative" --arg framework "$framework" \
-    '{env:"node",browserMode:"auto",serve:$serve,portFlag:"env",url:"http://127.0.0.1:${PORT}",healthPath:"/",readyTimeoutMs:60000,reuseExisting:true,routes:["/"],viewports:[[375,812],[768,1024],[1440,900]],themes:["light","dark"],restartOn:["package.json","*lock*","*.config.*"],watchGlobs:[$watch],maxShots:40,container:{service:null,port:null,image:null},auth:null,fixture:{status:"required",adapter:(".coder-ai-os-script/val-fixtures/"+$appId+".mjs")},generated:{by:"coder-ai-os",detectedKind:"package-script",appId:$appId,appRoot:$root,framework:$framework}}' > "$temporary"
+    '{env:"node",browserMode:"auto",serve:$serve,portFlag:"env",url:"http://127.0.0.1:${PORT}",healthPath:"/",readyTimeoutMs:60000,reuseExisting:true,routes:["/"],viewports:[[375,812],[768,1024],[1440,900]],themes:["light","dark"],restartOn:["package.json","*lock*","*.config.*"],watchGlobs:[$watch],maxShots:40,container:{service:null,port:null,image:null},auth:null,fixture:{status:"required",adapter:(".coder-ai/scripts/val-fixtures/"+$appId+".mjs")},generated:{by:"coder-ai-os",detectedKind:"package-script",appId:$appId,appRoot:$root,framework:$framework}}' > "$temporary"
   mv "$temporary" "$config"
 }
 
 write_fixture_adapter_once() {
   local app_id="$1" relative="$2" framework="$3" dir file temporary
-  dir="$PROJECT/.coder-ai-os-script/val-fixtures"
+  dir="$PROJECT/.coder-ai/scripts/val-fixtures"
   file="$dir/$app_id.mjs"
   mkdir -p "$dir"
   [ -f "$file" ] && return 0
@@ -119,7 +119,7 @@ write_fixture_adapter_once() {
     printf '%s\n' \
       'const message = [' \
       '  `VAL fixture ${app.id} (${app.framework}) is not completed.`,' \
-      '  `Edit .coder-ai-os-script/val-fixtures/${app.id}.mjs to create test-only browser storage state and deterministic API route fixtures.`,' \
+      '  `Edit .coder-ai/scripts/val-fixtures/${app.id}.mjs to create test-only browser storage state and deterministic API route fixtures.`,' \
       '  "Never read production credentials or disable application authentication.",' \
       '].join(" ");' \
       'console.error(message);' \
@@ -225,7 +225,7 @@ write_guide() {
     printf "Detection: \`%s\` — %s\n\n" "$DETECTED_KIND" "$DETECTION_DETAIL"
     printf 'Configuration: %s. Existing configuration is never overwritten by setup or sync.\n\n' "$config_status"
     printf '%s\n' "Run \`./.coder-ai/val/run doctor\` first, then \`./.coder-ai/val/run run\`. Agents should run VAL automatically after a git diff touches a configured \`watchGlobs\` UI file." ''
-    printf '%s\n' 'Authenticated apps use generated test-only adapters under `.coder-ai-os-script/val-fixtures/`. Complete each adapter with local session storage and deterministic API fixtures; VAL fails closed until it is complete. In a monorepo use `./.coder-ai/val/run --app <id> ...`.' ''
+    printf '%s\n' 'Authenticated apps use generated test-only adapters under `.coder-ai/scripts/val-fixtures/`. Complete each adapter with local session storage and deterministic API fixtures; VAL fails closed until it is complete. In a monorepo use `./.coder-ai/val/run --app <id> ...`.' ''
     printf '%s\n' 'If detection was incomplete, edit the config with the real serve command and URL. VAL does not install project dependencies, so old Node/TypeScript and non-Node applications keep their existing toolchain.'
   } > "$temporary"
   mv "$temporary" "$GUIDE_FILE"
