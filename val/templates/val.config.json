@@ -6,6 +6,7 @@
   "url": "http://localhost:${PORT}",
   "healthPath": "/",
   "readyTimeoutMs": 60000,
+  "authTimeoutMs": 15000,
   "reuseExisting": true,
   "routes": ["/", "/pricing"],
   "viewports": [[375, 812], [768, 1024], [1440, 900]],
