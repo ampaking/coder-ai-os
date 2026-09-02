@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# tests/run — run the repository test suite with zero extra dependencies.
+#
+#   tests/run                 run every tests/*_test.{sh,py}
+#   tests/run --ci            skip tests that need Docker or a real browser runtime
+#   tests/run val_fix tasks   run only tests whose filename contains a given pattern
+#
+# Exit 0 when every selected test passes; 1 otherwise. Each test runs in its own
+# process; a failing test's output is printed in full so CI logs are actionable.
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+# Docker-/browser-dependent tests (real containers, headed browsers): excluded by --ci.
+CI_SKIP='val_docker_|val_compose_driver_real|val_container_driver|val_browser|val_manual_auth'
+
+ci=0; patterns=()
+for a in "$@"; do
+  case "$a" in
+    --ci) ci=1 ;;
+    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) patterns+=("$a") ;;
+  esac
+done
+
+pass=0; skip=0; failed=()
+for t in "$ROOT"/tests/*_test.sh "$ROOT"/tests/*_test.py; do
+  [ -f "$t" ] || continue
+  name="$(basename "$t")"
+  if [ "$ci" = 1 ] && printf '%s' "$name" | grep -Eq "$CI_SKIP"; then
+    skip=$((skip + 1)); continue
+  fi
+  if [ "${#patterns[@]}" -gt 0 ]; then
+    match=0
+    for p in "${patterns[@]}"; do case "$name" in *"$p"*) match=1 ;; esac; done
+    [ "$match" = 1 ] || continue
+  fi
+  log="$(mktemp)"
+  start="$(date +%s)"
+  case "$name" in
+    *.sh) bash "$t" >"$log" 2>&1 ;;
+    *.py) PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" python3 "$t" >"$log" 2>&1 ;;
+  esac
+  rc=$?
+  took=$(( $(date +%s) - start ))
+  if [ "$rc" = 0 ]; then
+    printf 'PASS  %-42s %3ss\n' "$name" "$took"
+    pass=$((pass + 1))
+  else
+    printf 'FAIL  %-42s %3ss (exit %s)\n' "$name" "$took" "$rc"
+    sed 's/^/      | /' "$log"
+    failed+=("$name")
+  fi
+  rm -f "$log"
+done
+
+echo
+echo "passed: $pass   failed: ${#failed[@]}   skipped: $skip"
+if [ "${#failed[@]}" -gt 0 ]; then
+  printf 'failing: %s\n' "${failed[*]}"
+  exit 1
+fi

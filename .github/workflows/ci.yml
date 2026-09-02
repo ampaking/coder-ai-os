@@ -41,3 +41,8 @@ jobs:
           ./install.sh --yes
           test -f "$HOME/.claude/CLAUDE.md"
           grep -q 'coder-ai-os:managed' "$HOME/.claude/CLAUDE.md"
+
+      - name: Run test suite (Docker/browser-dependent tests skipped)
+        run: |
+          export HOME="$(mktemp -d)"
+          tests/run --ci
