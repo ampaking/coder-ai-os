@@ -1,21 +1,22 @@
 {
   "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "remind to run the test suite before reporting done \u2014 confirm lint/typecheck/tests ran for changed code and report the observed result; if validation is pending and code changed, keep working."
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "after editing a file, inspect .coder-ai/val/config.json watchGlobs; when the edited path matches, run VAL as an isolated validation task with the current UI request as --prompt and return only manifest.summary plus the report path"
+            "type": "command",
+            "command": ".coder-ai/scripts/val-post-edit.py"
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "coder-ai-os tasks hook claude"
           }
         ]
       }
