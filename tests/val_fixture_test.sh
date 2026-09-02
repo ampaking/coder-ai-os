@@ -55,8 +55,8 @@ run_dir="$project/.coder-ai/val/runs/fixture-e2e"
 [ -f "$run_dir/manifest.json" ] || fail 'fixture run manifest missing'
 [ "$(jq -r '.exitCode' "$run_dir/manifest.json")" -ne 3 ] || fail 'fixture run ended as infrastructure failure'
 [ "$(curl --fail --silent "$url/count")" -eq 0 ] || fail 'fixture API request escaped to the live test backend'
-[ "$(stat -f '%Lp' "$project/.coder-ai/val/fixture.json" 2>/dev/null || stat -c '%a' "$project/.coder-ai/val/fixture.json")" = 600 ] || fail 'fixture contract mode is not 600'
-[ "$(stat -f '%Lp' "$project/.coder-ai/val/fixture-auth.json" 2>/dev/null || stat -c '%a' "$project/.coder-ai/val/fixture-auth.json")" = 600 ] || fail 'fixture auth state mode is not 600'
+[ "$(stat -c '%a' "$project/.coder-ai/val/fixture.json" 2>/dev/null || stat -f '%Lp' "$project/.coder-ai/val/fixture.json")" = 600 ] || fail 'fixture contract mode is not 600'
+[ "$(stat -c '%a' "$project/.coder-ai/val/fixture-auth.json" 2>/dev/null || stat -f '%Lp' "$project/.coder-ai/val/fixture-auth.json")" = 600 ] || fail 'fixture auth state mode is not 600'
 
 outside="$TMP/outside-auth.json"
 printf '%s\n' '{"cookies":[],"origins":[]}' > "$outside"

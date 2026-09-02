@@ -49,7 +49,7 @@ evidence="$VAL_STATE_DIR/runs/auth-test/auth"
 request="$(jq -n --arg url "$url/login" --arg outDir "$evidence" --arg authState "$state" '{protocolVersion:1,operation:"auth-login",url:$url,outDir:$outDir,authState:$authState,successCheck:"text=Logout",steps:[{fill:"input[name=email]",value:"test@example.invalid"},{fill:"input[name=password]",value:"fixture-password"},{click:"button[type=submit]"},{waitFor:"/dashboard"}]}')"
 printf '%s\n' "$request" | val_browser_run > "$TMP/login.json"
 jq -e '.status == "authenticated" and (.steps | length == 4)' "$TMP/login.json" >/dev/null || fail 'login response was not authenticated'
-[ "$(stat -f '%Lp' "$state" 2>/dev/null || stat -c '%a' "$state")" = 600 ] || fail 'storage state mode is not 600'
+[ "$(stat -c '%a' "$state" 2>/dev/null || stat -f '%Lp' "$state")" = 600 ] || fail 'storage state mode is not 600'
 [ "$(find "$evidence" -name 'step-*.png' | awk 'END {print NR}')" -eq 4 ] || fail 'auth step evidence is incomplete'
 if rg -q 'fixture-password|test@example.invalid' "$TMP/login.json"; then fail 'credentials leaked in browser JSON output'; fi
 
