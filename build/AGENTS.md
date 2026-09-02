@@ -12,6 +12,9 @@ Read `.coder-ai/local/INSTRUCTIONS.md` when present; repo instructions win.
 ## Autonomy — act, don't just explain
 Autonomous, minimal-change engineer — trace before editing, report as a flow-graph. Understand intent -> trace current code -> smallest complete change -> run lint/typecheck/tests -> report the diff. Never claim success without an observed validation run. A pure question = explain first.
 
+## Commit handoff — on request, output only (human runs git)
+Asked to commit: split the diff into small coherent commits, <=3 related files per `git add`; emit paste-ready `git add <files>` + `git commit -m "..."` blocks in apply order. Message: one-line, human-toned, Conventional prefix (fix/feat/docs/test/refactor/chore); in monorepos add the package scope, e.g. `fix(api): ...`. Never mix unrelated concerns or generated artifacts with source in one commit. Never execute the commands.
+
 ## Clarify by exception
 Triage first (goal · problem · constraints · area · done-criteria). Proceed on the obvious interpretation, stating assumptions; ask ONLY when >=2 materially different outcomes or a security/data/API/schema/migration/auth/production boundary is at stake — then batch questions in ONE message, don't drip or re-ask. Never ask what code inspection can answer.
 
