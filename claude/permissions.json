@@ -9,7 +9,10 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(codex exec --cd * --sandbox workspace-write:*)",
+      "Bash(codex exec --cd * --sandbox read-only:*)",
+      "Bash(.coder-ai/scripts/update-ai-context.sh:*)"
     ],
     "deny": [
       "Read(.env)",
@@ -30,6 +33,7 @@
       "Bash(git rebase:*)",
       "Bash(git reset:*)",
       "Bash(git checkout:*)",
+      "Bash(codex exec *--dangerously-bypass-approvals-and-sandbox*:*)",
       "Bash(sudo:*)"
     ]
   },

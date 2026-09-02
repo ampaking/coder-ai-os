@@ -1,0 +1,6 @@
+# coder-ai-os:generated
+# Narrow native-orchestration commands. These avoid repetitive approval prompts without
+# weakening the sandbox for arbitrary shells, deployment, Git writes, or destructive tools.
+prefix_rule(pattern=["claude", "-p", "--permission-mode", "auto"], decision="allow")
+prefix_rule(pattern=["claude", "-p", "--permission-mode", "plan"], decision="allow")
+prefix_rule(pattern=[".coder-ai/scripts/update-ai-context.sh"], decision="allow")
