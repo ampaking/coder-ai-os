@@ -7,6 +7,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 fail(){ echo "FAIL: $*" >&2; exit 1; }
 sync_repo(){ "$ROOT/bin/coder-ai-os" sync "$1" >/dev/null; }
+sync_repo_log(){ "$ROOT/bin/coder-ai-os" sync "$1" 2>&1; }
 assert_count(){
   local expected="$1" pattern="$2" file="$3" actual
   actual="$(grep -cE "$pattern" "$file" || true)"
@@ -63,6 +64,30 @@ chmod 600 "$mode_repo/.codex/config.toml"
 sync_repo "$mode_repo"
 mode="$(stat -c '%a' "$mode_repo/.codex/config.toml" 2>/dev/null || stat -f '%Lp' "$mode_repo/.codex/config.toml")"
 [ "$mode" = 600 ] || fail "Codex config mode changed to $mode"
+
+# codex-cli rewrites config.toml and reflows our managed status_line into a multi-line
+# array. That is our own content, so a re-sync must not reject the file as ambiguous.
+reflowed="$TMP/reflowed-repo"
+mkdir -p "$reflowed/.codex"
+cat > "$reflowed/.codex/config.toml" <<'EOF'
+# >>> coder-ai-os:managed >>>
+approval_policy = "on-failure"
+# <<< coder-ai-os:managed <<<
+# >>> coder-ai-os:managed >>>
+[tui]
+status_line = [
+  "model-with-reasoning",
+  "git-branch",
+]
+# <<< coder-ai-os:managed <<<
+EOF
+reflowed_log="$(sync_repo_log "$reflowed")"
+case "$reflowed_log" in
+  *"ambiguous multiline TOML"*) fail 'reflowed managed status_line array tripped the multiline guard' ;;
+esac
+assert_count 1 '^\[tui\]$' "$reflowed/.codex/config.toml"
+assert_count 1 '^status_line[[:space:]]*=' "$reflowed/.codex/config.toml"
+assert_count 1 '^approval_policy[[:space:]]*=' "$reflowed/.codex/config.toml"
 
 multiline="$TMP/multiline-repo"
 mkdir -p "$multiline/.codex"

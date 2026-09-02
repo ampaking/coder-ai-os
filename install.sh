@@ -165,9 +165,6 @@ write_codex_config(){
   local target="$1" source="$REPO_DIR/codex/config.defaults.toml" dir work clean block out key line found=0
   if [ "$DRY_RUN" = 1 ]; then log "would merge Codex defaults -> $target (existing values win)"; return; fi
   reject_symlink "$target" || return 1
-  if [ -f "$target" ] && grep -Eq "\"\"\"|'''|=[[:space:]]*\\[[^]]*$|=[[:space:]]*\\{[^}]*$" "$target"; then
-    log "ERROR: ambiguous multiline TOML in $target; left unchanged"; return 1
-  fi
   dir="$(dirname "$target")"; mkdir -p "$dir"; [ -f "$target" ] || : > "$target"
   work="$(mktemp -d "$dir/.coder-ai-os.toml.XXXXXX")" || return 1; CODEX_TMP="$work"
   clean="$work/clean"; block="$work/block"; out="$work/out"; : > "$block"
@@ -182,6 +179,13 @@ write_codex_config(){
   awk -v b="$TOML_BEGIN" -v e="$TOML_END" -v lb="$TOML_BEGIN_OLD" -v le="$TOML_END_OLD" '
     $0==b || $0==lb {skip=1; next} $0==e || $0==le {skip=0; next} skip!=1{print}
   ' "$target" > "$clean"
+  # Ambiguity guard runs on the stripped copy, not the raw target: our own managed
+  # [tui].status_line is a multi-line array, so scanning the raw file would reject
+  # every re-sync of a repo we had already synced once.
+  if grep -Eq "\"\"\"|'''|=[[:space:]]*\\[[^]]*$|=[[:space:]]*\\{[^}]*$" "$clean"; then
+    log "ERROR: ambiguous multiline TOML in $target; left unchanged"
+    rm -rf "$work"; CODEX_TMP=""; return 1
+  fi
   for key in approval_policy; do
     if awk -v k="$key" '
       BEGIN {top=1; pat="^[[:space:]]*(\"" k "\"|\047" k "\047|" k ")[[:space:]]*="}
