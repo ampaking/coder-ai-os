@@ -59,7 +59,7 @@ The kernel. Every tool file is compiled from these — edit here, then run `bin/
 | `skills.yaml` | select portable skills for `.claude/skills/` + `.agents/skills/` | `enabled[]`, `lazy_load`; each `skills/<id>/SKILL.md` owns and validates its trigger metadata |
 | `commands.yaml` | native Claude/Gemini/Cursor commands; Codex follows `AGENTS.md` + `AI_DEV_PROTOCOL.md` | `commands.<name>.{description,body}` |
 | `subagents.yaml` | Claude `.claude/agents/<name>.md` + Codex `.codex/agents/<name>.toml` | read-only exploration/review roles; parent model inherited |
-| `hooks.yaml` | `.claude/HOOKS.md` + safe prompt-only Stop hook | `hooks.<id>.{event,action}` — user hooks are preserved and merged idempotently; arbitrary commands are never auto-run |
+| `hooks.yaml` | `.claude/HOOKS.md` + owned validation/collection hooks | `hooks.<id>.{event,action,command,matcher}` — user hooks are preserved; global Stop is observation-only and nonblocking; only fixed generated commands run |
 | `mcp.yaml` | `.ai/MCP.md` + doctor listing | `servers.<id>.{command,args,targets,install}` |
 | `memory.yaml` | Memory + shared project navigator convention | `location`, `index`, `resume`, `navigator`, `capture`, `prune`, `load` |
 | `profiles/<lang>.yaml` | merged when `user.languages` includes `<lang>` | e.g. sets `user.coding.*` |
