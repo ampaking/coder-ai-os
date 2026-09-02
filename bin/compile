@@ -89,6 +89,13 @@ def _parse(lines, i, indent):
                 node = {}
             if ": " in st:
                 key, val = st.split(": ", 1)
+                # CI parity: strict YAML (PyYAML) rejects an unquoted plain scalar
+                # containing ": ". Fail here too, so a machine without PyYAML catches
+                # the error locally instead of first seeing it in CI.
+                plain = val.strip().split(" #", 1)[0].rstrip()
+                if plain and plain[0] not in "\"'" and ": " in plain:
+                    raise SystemExit("invalid YAML — unquoted ': ' inside a value "
+                                     "(quote the string or reword): " + st)
                 node[key.strip()] = _coerce(val)
                 i += 1
             elif st.endswith(":"):
