@@ -32,7 +32,10 @@ jq --arg url "$url" '.env="remote" | .browserMode="local" | .url=$url | .routes=
   "$ROOT/val/templates/val.config.json" > "$project/.coder-ai/val/config.json"
 
 run_auth() {
-  (cd "$project" && VAL_BROWSER_CACHE_DIR="${VAL_TEST_BROWSER_CACHE_DIR:-/tmp/coder-ai-os-val-browser-test-1.62.1}" VAL_TEST_USER="$1" VAL_TEST_PASS="$2" "$ROOT/val/val" auth)
+  (cd "$project" && \
+    VAL_BROWSER_CACHE_DIR="${VAL_TEST_BROWSER_CACHE_DIR:-$TMP/val-browser-test}" \
+    VAL_TEST_USER="$1" VAL_TEST_PASS="$2" \
+    "$ROOT/val/val" auth)
 }
 
 run_auth 'test@example.invalid' 'fixture-password' > "$TMP/success-1.log"

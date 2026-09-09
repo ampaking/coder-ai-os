@@ -5,6 +5,7 @@ IFS=$'\n\t'
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TMP="$(mktemp -d)"
 SERVER_PID=''
+VAL_TEST_CACHE="${VAL_TEST_BROWSER_CACHE_DIR:-$TMP/val-browser-test}"
 
 cleanup() {
   [ -z "$SERVER_PID" ] || kill -TERM "$SERVER_PID" 2>/dev/null || true
@@ -30,7 +31,7 @@ VAL_PROJECT_DIR="$TMP/project"
 VAL_STATE_DIR="$VAL_PROJECT_DIR/.coder-ai/val"
 VAL_CONFIG_FILE="$VAL_STATE_DIR/config.json"
 VAL_SOURCE_DIR="$ROOT/val"
-VAL_BROWSER_CACHE_DIR="${VAL_TEST_BROWSER_CACHE_DIR:-/tmp/coder-ai-os-val-browser-test-1.62.1}"
+VAL_BROWSER_CACHE_DIR="$VAL_TEST_CACHE"
 export VAL_PROJECT_DIR VAL_STATE_DIR VAL_CONFIG_FILE VAL_SOURCE_DIR VAL_BROWSER_CACHE_DIR
 mkdir -p "$VAL_STATE_DIR"
 jq '.browserMode="local"' "$ROOT/val/templates/val.config.json" > "$VAL_CONFIG_FILE"
