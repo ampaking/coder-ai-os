@@ -28,6 +28,7 @@ done
 
 project="$TMP/project"
 mkdir -p "$project/.coder-ai/val" "$project/.coder-ai/scripts/val-fixtures"
+RUN_CACHE="${VAL_TEST_BROWSER_CACHE_DIR:-$TMP/val-browser-fixture-test}"
 jq --arg url "$url" '.env="remote" | .browserMode="local" | .url=$url | .routes=["/dashboard"] | .themes=["light"] | .viewports=[[375,812]] | .auth=null | .fixture={status:"required",adapter:".coder-ai/scripts/val-fixtures/root.mjs"}' \
   "$ROOT/val/templates/val.config.json" > "$project/.coder-ai/val/config.json"
 cat > "$project/.coder-ai/scripts/val-fixtures/root.mjs" <<'EOF'
@@ -47,7 +48,7 @@ EOF
 chmod +x "$project/.coder-ai/scripts/val-fixtures/root.mjs"
 
 set +e
-output="$(cd "$project" && VAL_BROWSER_CACHE_DIR="${VAL_TEST_BROWSER_CACHE_DIR:-/tmp/coder-ai-os-val-browser-fixture-1.62.1}" "$ROOT/val/val" run --task fixture-e2e 2>&1)"
+output="$(cd "$project" && VAL_BROWSER_CACHE_DIR="$RUN_CACHE" "$ROOT/val/val" run --task fixture-e2e 2>&1)"
 status=$?
 set -e
 [ "$status" -ne 3 ] || { printf '%s\n' "$output" >&2; fail 'fixture-backed VAL run had an infrastructure failure'; }

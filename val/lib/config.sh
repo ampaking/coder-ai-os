@@ -13,6 +13,7 @@ val_config_defaults() {
     url: "http://localhost:${PORT}",
     healthPath: "/",
     readyTimeoutMs: 60000,
+    authTimeoutMs: 15000,
     reuseExisting: true,
     routes: ["/", "/pricing"],
     viewports: [[375, 812], [768, 1024], [1440, 900]],
@@ -36,6 +37,7 @@ val_config_validate() {
     and (.url | type == "string" and length > 0)
     and (.healthPath | type == "string" and startswith("/"))
     and (.readyTimeoutMs | type == "number" and . > 0)
+    and (.authTimeoutMs | type == "number" and . > 0)
     and (.reuseExisting | type == "boolean")
     and (.routes | type == "array" and all(.[]; type == "string" and startswith("/")))
     and (.viewports | type == "array" and all(.[]; type == "array" and length == 2 and all(.[]; type == "number" and . > 0)))

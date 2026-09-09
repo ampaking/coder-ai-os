@@ -5,6 +5,7 @@ IFS=$'\n\t'
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+RUN_CACHE="${VAL_TEST_BROWSER_CACHE_DIR:-$TMP/val-browser-test}"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -20,7 +21,7 @@ sed "s|__SERVE__|$serve|" "$ROOT/tests/fixtures/val.node.config.json" \
   > "$project/.coder-ai/val/config.json"
 
 set +e
-output="$(cd "$project" && VAL_BROWSER_CACHE_DIR=/tmp/coder-ai-os-val-browser-test-1.62.1 "$ROOT/val/val" run --prompt 'stack cards below 768px' --task e2e-fixture 2>&1)"
+output="$(cd "$project" && VAL_BROWSER_CACHE_DIR="$RUN_CACHE" "$ROOT/val/val" run --prompt 'stack cards below 768px' --task e2e-fixture 2>&1)"
 status=$?
 set -e
 [ "$status" -eq 1 ] || { printf '%s\n' "$output" >&2; fail "first run returned $status instead of non-green 1"; }
@@ -40,7 +41,7 @@ if find "$project/.coder-ai/val/locks" -type f -name '*.json' -print -quit | gre
 [ "$(jq -r '.sourceRun' "$project/.coder-ai/val/baseline/manifest.json")" = e2e-fixture ] || fail 'baseline manifest source mismatch'
 
 set +e
-output="$(cd "$project" && VAL_BROWSER_CACHE_DIR=/tmp/coder-ai-os-val-browser-test-1.62.1 "$ROOT/val/val" run --task e2e-green 2>&1)"
+output="$(cd "$project" && VAL_BROWSER_CACHE_DIR="$RUN_CACHE" "$ROOT/val/val" run --task e2e-green 2>&1)"
 status=$?
 set -e
 # The HTTP fixture intentionally lacks accessibility metadata, but its pixel baseline must pass.
