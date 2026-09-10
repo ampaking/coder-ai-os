@@ -194,8 +194,12 @@ val_run() {
   local evidence_outcome='warning'
   [ "$status" -eq 0 ] && evidence_outcome='passed'
   { [ "$status" -eq 1 ] || [ "$status" -eq 2 ]; } && evidence_outcome='failed'
-  if command -v coder-ai-os >/dev/null 2>&1; then
-    coder-ai-os tasks validation-result --collector val --run-id "$VAL_RUN_ID" \
+  # Prefer the current name; fall back to the legacy link so an older install still records.
+  local cli=""
+  command -v coder-ai    >/dev/null 2>&1 && cli=coder-ai
+  [ -z "$cli" ] && command -v coder-ai-os >/dev/null 2>&1 && cli=coder-ai-os
+  if [ -n "$cli" ]; then
+    "$cli" tasks validation-result --collector val --run-id "$VAL_RUN_ID" \
       --outcome "$evidence_outcome" >/dev/null 2>&1 || true
   fi
   val_run_cleanup

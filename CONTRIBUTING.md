@@ -6,7 +6,7 @@ not the generated output.
 ## Workflow
 1. Edit `config/*.yaml` (see [`config/README.md`](config/README.md)). Never hand-edit
    `build/*.md` — it is generated.
-2. Compile and check: `coder-ai-os compile && coder-ai-os doctor`.
+2. Compile and check: `coder-ai compile && coder-ai doctor`.
 3. `doctor` must pass (within budget, no conflicts, no drift) before you commit `build/`.
 4. Follow [`protocol/AI_DEV_PROTOCOL.md`](protocol/AI_DEV_PROTOCOL.md): classify the tier,
    understand before editing, atomic tasks each with a reason, validate with an observed run.

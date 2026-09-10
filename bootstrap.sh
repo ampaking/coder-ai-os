@@ -32,6 +32,6 @@ Done — every agent is configured with defaults.
 Personalize anytime (interactive):
     coder-ai-os init          (or: ~/coder-ai-os/install.sh --init)
 Confirm it all loaded:
-    coder-ai-os verify
+    coder-ai verify
 ────────────────────────────────────────────────
 EOF

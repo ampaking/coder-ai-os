@@ -1,6 +1,6 @@
 # Codex safety defaults. Existing user or project values always win during installation.
 # Apply globally:  install.sh --codex-safety-defaults
-# Applied to project config by:  coder-ai-os setup | coder-ai-os sync
+# Applied to project config by:  coder-ai setup | coder-ai sync
 #
 # `:workspace` allows routine work inside the selected project while retaining the
 # host boundary for external paths. Existing sandbox_mode/default_permissions always wins.

@@ -6,6 +6,9 @@ IFS=$'\n\t'
 
 PROJECT="${1:-.}"
 PROJECT="$(cd "$PROJECT" && pwd -P)"
+# The generated wrapper must reach this tool's own `val`, not a binary on PATH:
+# there is one CLI on PATH now, and it is `coder-ai`.
+VAL_HOME="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 STATE_DIR="$PROJECT/.coder-ai/val"
 CONFIG_FILE="$STATE_DIR/config.json"
 GUIDE_FILE="$STATE_DIR/SETUP.md"
@@ -233,18 +236,21 @@ write_guide() {
 
 write_runner_once() {
   local temporary
-  if [ -f "$RUN_FILE" ] && ! grep -qF 'coder-ai-os:generated' "$RUN_FILE" && ! grep -qF 'command -v val' "$RUN_FILE"; then
+  if [ -f "$RUN_FILE" ] && ! grep -qF 'coder-ai-os:generated' "$RUN_FILE" \
+     && ! grep -qF 'command -v val' "$RUN_FILE" && ! grep -qF 'exec "$VAL_BIN"' "$RUN_FILE"; then
     return 0
   fi
   temporary="$(mktemp "$STATE_DIR/.run.XXXXXX")"
   {
     printf '%s\n' '#!/usr/bin/env bash' '# coder-ai-os:generated' 'set -euo pipefail' "IFS=\$'\\n\\t'" ''
-    printf '%s\n' 'command -v val >/dev/null 2>&1 || { echo "VAL is not installed; run coder-ai-os install" >&2; exit 3; }'
+    printf '%s\n' "VAL_BIN=\"\${VAL_BIN:-$VAL_HOME/val}\"" \
+      '[ -x "$VAL_BIN" ] || VAL_BIN="$(command -v val 2>/dev/null || true)"' \
+      '[ -n "$VAL_BIN" ] && [ -x "$VAL_BIN" ] || { echo "VAL not found; run coder-ai install" >&2; exit 3; }'
     printf '%s\n' 'ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"' 'REGISTRY="$ROOT/.coder-ai/val/apps.json"' 'APP=""'
     printf '%s\n' 'if [ "${1:-}" = --app ]; then APP="${2:-}"; [ -n "$APP" ] || { echo "VAL: --app requires an id" >&2; exit 3; }; shift 2; fi'
     printf '%s\n' 'if [ -f "$REGISTRY" ]; then' '  if [ -z "$APP" ] && [ "$(jq ".apps | length" "$REGISTRY")" -eq 1 ]; then APP="$(jq -r ".apps[0].id" "$REGISTRY")"; fi' '  if [ -z "$APP" ] && [ "$(jq ".apps | length" "$REGISTRY")" -gt 1 ]; then echo "VAL: multiple web apps detected; use --app <id>" >&2; jq -r ".apps[].id" "$REGISTRY" >&2; exit 3; fi' 'fi'
     printf '%s\n' 'if [ -n "$APP" ]; then' '  jq -e --arg id "$APP" "any(.apps[]; .id == \$id)" "$REGISTRY" >/dev/null || { echo "VAL: unknown app: $APP" >&2; exit 3; }' '  export VAL_STATE_DIR="$ROOT/.coder-ai/val/apps/$APP"' '  export VAL_CONFIG_FILE="$VAL_STATE_DIR/config.json"' 'fi'
-    printf '%s\n' 'cd "$ROOT"' 'exec val "$@"'
+    printf '%s\n' 'cd "$ROOT"' 'exec "$VAL_BIN" "$@"'
   } > "$temporary"
   chmod 755 "$temporary"
   mv "$temporary" "$RUN_FILE"

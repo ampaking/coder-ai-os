@@ -1,0 +1,46 @@
+# PR AUTOMATION — the elevated, PR-scoped engineering mode (`coder-ai pr`).
+#
+# Normal Claude/Codex sessions are unaffected by everything in this file: they keep
+# the guardrails in safety.yaml (no git writes). Elevation exists only inside a live
+# `coder-ai pr` session's process tree and disappears when that session ends.
+#
+# Nothing here can widen the boundary. The allow/deny matrix is code
+# (src/coderai/pr_automation/guard/policy.py) precisely so configuration — or a
+# repository that edits its own AGENTS.md/Makefile/CI — cannot loosen it.
+
+execution_profiles:
+  normal:
+    git_write: false
+    deploy: false
+    secrets: false
+  pr_automation:
+    # scoped = add/commit + non-force push of the exact PR head ref, nothing else
+    git_write: scoped
+    deploy: false
+    secrets: false
+
+watch:
+  # `coder-ai pr 1420 -- claude` watches for one hour; beyond `maximum`, use until-close
+  default: 1h
+  maximum: 7d
+  # adaptive polling: active = just pushed or CI running; ready = READY but still open
+  poll:
+    active: 45s
+    review: 180s
+    idle: 600s
+    ready: 900s
+
+commit:
+  # Git history stays clean: no AI-Agent/AI-Model trailers, ever. This is fixed,
+  # not configurable — provider and model detail belongs in audit.jsonl (§31).
+  trailers: false
+  # repository | "Claude via coder-ai-os" | "Codex via coder-ai-os"
+  identity: repository
+
+routing:
+  # The parent is the provider the user named after `--`; roles may differ (§57).
+  parent: user-selected
+  roles: [triage, verify, fix, review]
+  cross_provider_review: prefer-opposite
+  # allowed: a rate-limited provider costs a retry, not the session
+  fallback: allowed

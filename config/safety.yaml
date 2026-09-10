@@ -2,7 +2,12 @@
 # reliability far more consistently than positive checklists, so these compile to the
 # TOP of every generated file. Booleans gate behavior; `never` lines render verbatim.
 forbid_env_read: true
-forbid_git_write: true
+# Ordinary git is the agent's to use: a branch it cannot commit, rebase or push is a
+# branch it cannot finish. What stays forbidden is the irreversible half — force push,
+# deleting refs, and anything aimed at a protected branch (see `never` below). Where a
+# project declares a delivery workflow, `coder-ai ship` remains the sanctioned route:
+# it branches off the configured base, commits, pushes only that branch, opens the PR.
+forbid_git_write: false
 forbid_sudo: true
 forbid_deploy: true
 forbid_unrelated_refactor: true
@@ -10,7 +15,9 @@ forbid_disable_checks: true
 forbid_unneeded_deps: true
 never:
   - Read or modify .env*, secrets, credentials, private keys, tokens, service-account.json.
-  - Run git commit/push/pull/fetch/merge/rebase/reset/checkout, sudo, deploys, or history rewrites — the human runs git writes.
+  - Work around `coder-ai ship` where a delivery workflow is declared — never skip a failed step.
+  - Push to the base branch or any protected branch (main/master/staging/production), force push, delete refs, merge a PR, tag a release, deploy, or rewrite history — in any mode.
+  - Run sudo.
   - Refactor or touch code unrelated to the task; report such issues separately instead.
   - Add dependencies or bump versions without direct need; disable tests/lint/types/security checks to force a pass.
   - Change public APIs, schemas, or migrations unless the task requires it.

@@ -7,7 +7,7 @@ description: Coordinate a feature or epic from a normal Claude or Codex session 
 
 The interactive CLI the user opened is the controller. Preserve its selected/default model; do not
 restart the parent merely to route a task. `coder-ai-os` is setup and instruction generation only:
-never require `coder-ai-os run`, a daemon, or an MCP bridge for execution.
+never require `coder-ai run`, a daemon, or an MCP bridge for execution.
 
 ## Plan and route
 
@@ -15,7 +15,7 @@ never require `coder-ai-os run`, a daemon, or an MCP bridge for execution.
    independently verifiable tasks; keep exactly one write task active.
 2. Record the plan and current task in the repository's existing AI_DEV_PROTOCOL artifacts and
    `.ai/memory/CURRENT.md`. Project Tasks synchronization belongs to installed hooks; do not run
-   `coder-ai-os tasks` during normal work unless the user explicitly requests Project Tasks.
+   `coder-ai tasks` during normal work unless the user explicitly requests Project Tasks.
 3. Route by capability and risk. Use the current provider's native subagent surface for same-provider
    exploration or review. Use the other installed CLI directly when its capability is a better fit or
    for independent cross-provider review. Do not hardcode a model name that the local CLI does not expose;

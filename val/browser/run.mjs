@@ -15,6 +15,8 @@ function fail(message) {
   process.exitCode = 3;
 }
 
+const SCREENSHOT_TIMEOUT_MS = Number(process.env.VAL_SCREENSHOT_TIMEOUT_MS || 90000);
+
 async function readRequest() {
   let source = "";
   for await (const chunk of process.stdin) source += chunk;
@@ -179,14 +181,14 @@ async function focusCheck(page, request, name) {
     const box = await locator.boundingBox();
     if (!box) continue;
     const clip = { x: Math.max(0, box.x - 4), y: Math.max(0, box.y - 4), width: Math.max(1, box.width + 8), height: Math.max(1, box.height + 8) };
-    const before = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
+    const before = await page.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, clip, animations: "disabled", caret: "hide" });
     let reached = false;
     for (let step = 0; step < candidates.length + 2; step += 1) {
       await page.keyboard.press("Tab");
       reached = await locator.evaluate((element) => document.activeElement === element);
       if (reached) break;
     }
-    const after = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
+    const after = await page.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, clip, animations: "disabled", caret: "hide" });
     const beforePng = PNG.sync.read(before);
     const afterPng = PNG.sync.read(after);
     const changed = beforePng.width === afterPng.width && beforePng.height === afterPng.height
@@ -257,14 +259,14 @@ async function capture(browser, request, shot) {
   const landedPath = new URL(page.url()).pathname;
   const authRedirect = landedPath !== targetUrl.pathname && /\/(?:login|sign-?in|auth)(?:\/|$)/i.test(landedPath);
   if (!request.authState && (authRedirect || await page.locator('input[type="password"]').count() > 0)) {
-    await page.screenshot({ path: outputPath, fullPage: true, animations: "disabled", caret: "hide", mask: [page.locator('input[type="password"]')] });
+    await page.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, path: outputPath, fullPage: true, animations: "disabled", caret: "hide", mask: [page.locator('input[type="password"]')] });
     await context.close();
     return { path: outputPath, route: shot.route, viewport: shot.viewport, theme: shot.theme, blocked: "auth-required", checks: [{ id: "auth-required", status: "blocked", detail: `route requires authentication (landed on ${landedPath})` }] };
   }
   const checks = await domChecks(page, request);
   const focus = await focusCheck(page, request, name);
   if (focus) checks.push(focus);
-  await page.screenshot({ path: outputPath, fullPage: true, animations: "disabled", caret: "hide", scale: "device" });
+  await page.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, path: outputPath, fullPage: true, animations: "disabled", caret: "hide", scale: "device" });
   const pixel = await pixelCheck(request, name, outputPath);
   if (pixel) checks.push(pixel);
   const result = { path: outputPath, route: shot.route, viewport: shot.viewport, theme: shot.theme, checks };
@@ -290,7 +292,7 @@ async function authCheck(browser, request) {
 async function authStepScreenshot(page, request, index) {
   await fs.mkdir(request.outDir, { recursive: true });
   const outputPath = path.join(request.outDir, `step-${String(index + 1).padStart(2, "0")}.png`);
-  await page.screenshot({ path: outputPath, fullPage: true, animations: "disabled", caret: "hide", mask: [page.locator('input[type="password"]')] });
+  await page.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, path: outputPath, fullPage: true, animations: "disabled", caret: "hide", mask: [page.locator('input[type="password"]')] });
   return outputPath;
 }
 

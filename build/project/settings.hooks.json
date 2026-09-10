@@ -9,6 +9,15 @@
           }
         ],
         "matcher": "Edit|Write|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".coder-ai/scripts/evidence-post-tool.py"
+          }
+        ],
+        "matcher": "Bash|Edit|Write|MultiEdit"
       }
     ],
     "Stop": [
@@ -16,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "coder-ai-os tasks hook claude"
+            "command": "coder-ai tasks hook claude"
           }
         ]
       }

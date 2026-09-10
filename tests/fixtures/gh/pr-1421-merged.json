@@ -1,0 +1,7 @@
+{
+  "number": 1421, "title": "Already merged", "body": "", "author": {"login": "nobin"},
+  "state": "MERGED", "isDraft": false, "url": "https://github.com/org/aiila/pull/1421",
+  "headRefName": "feature/done", "baseRefName": "main",
+  "headRefOid": "bbb123bbb123bbb123bbb123bbb123bbb123bbbb",
+  "mergeable": "MERGEABLE", "isCrossRepository": false
+}

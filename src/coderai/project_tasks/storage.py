@@ -182,7 +182,7 @@ def repair_database(project: Path) -> dict[str, Any]:
 def require_enabled(project: Path) -> dict[str, Any]:
     settings = load_settings(project)
     if not settings or not settings.get("enabled"):
-        raise StorageError("Project Tasks is disabled; run: coder-ai-os tasks enable")
+        raise StorageError("Project Tasks is disabled; run: coder-ai tasks enable")
     if int(settings.get("settingsVersion", 1)) > SETTINGS_VERSION:
         raise StorageError("task settings were created by a newer coder-ai-os version")
     return settings
@@ -415,7 +415,7 @@ def record_collector_receipt(project: Path, payload: dict[str, Any]) -> dict[str
     """Record content-free collector health while project collection is enabled."""
     settings = require_enabled(project)
     if not settings.get("automaticCollection"):
-        raise StorageError("automatic collection is off; run: coder-ai-os tasks collect enable")
+        raise StorageError("automatic collection is off; run: coder-ai tasks collect enable")
     if not isinstance(payload, dict):
         raise StorageError("collector receipt must be an object")
     _reject_forbidden(payload)

@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# coder-ai — the CLI for coder-ai-os. One command for every part of the harness.
+set -euo pipefail
+# Resolve through symlinks: coder-ai is invoked via ~/.local/bin/coder-ai (a symlink into the
+# repo), so BASH_SOURCE is the link, not the real file. Walk links to find the actual
+# bin/ dir. (Same pattern as bin/coder-ai-os and val/val — do not reinvent it.)
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  _dir="$(cd -P "$(dirname "$SELF")" >/dev/null 2>&1 && pwd)"
+  SELF="$(readlink "$SELF")"
+  case "$SELF" in /*) : ;; *) SELF="$_dir/$SELF" ;; esac
+done
+REPO_DIR="$(cd -P "$(dirname "$SELF")/.." >/dev/null 2>&1 && pwd)"
+
+die(){ echo "coder-ai: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "'$1' not found on PATH${2:+ — $2}"; }
+
+usage(){
+  cat <<'USAGE'
+coder-ai — one CLI for your AI coding harness.
+
+  Set up
+    coder-ai install         configure every AI agent on this machine
+    coder-ai setup           set up the current project
+    coder-ai sync            safely refresh the current project
+    coder-ai init            change your profile (--interactive | --ai claude | --from f)
+
+  Work
+    coder-ai status          where am I? project, agents, current task, PR sessions
+    coder-ai prove           what is actually verified — evidence, not claims
+    coder-ai ship            run this project's own delivery workflow
+    coder-ai find <symbol>   locate a symbol in the code atlas, without scanning
+    coder-ai pr <pr|branch|url> -- <provider>
+                             supervise a Pull Request autonomously
+    coder-ai val <command>   visual loop: screenshots, a11y, pixel checks
+    coder-ai tasks <command> private record of what agents did here
+    coder-ai run "<task>"    one bounded execute → verify → review run
+
+  Check
+    coder-ai verify          what each agent CLI actually loads
+    coder-ai doctor          sizes, budgets, drift, health
+
+  coder-ai help <topic>      pr · val · tasks · config
+USAGE
+}
+
+topic_help(){
+  case "${1:-}" in
+    pr)     exec "$REPO_DIR/bin/coder-ai" pr --help ;;
+    val)    exec "$REPO_DIR/bin/coder-ai" val --help ;;
+    tasks)  exec "$REPO_DIR/bin/coder-ai" tasks --help ;;
+    config) echo "Settings live in config/*.yaml — see $REPO_DIR/config/README.md"
+            echo "Change them with: coder-ai init --interactive" ;;
+    *)      usage ;;
+  esac
+}
+
+cmd_find(){
+  [ "$#" -gt 0 ] || die "find needs a symbol name, e.g. coder-ai find handleRetry"
+  local atlas="$PWD/.ai/symbols"
+  [ -d "$atlas" ] || die "no code atlas in this project yet — run: coder-ai sync"
+  local matches
+  if command -v rg >/dev/null 2>&1; then
+    matches="$(rg -w --no-heading --color never "$1" "$atlas" || true)"
+  else
+    matches="$(grep -rnw "$1" "$atlas" || true)"
+  fi
+  if [ -z "$matches" ]; then
+    echo "coder-ai: no symbol matching '$1' in the atlas."
+    echo "  the atlas may be stale — refresh it with: coder-ai sync"
+    exit 1
+  fi
+  printf '%s\n' "$matches" | head -40
+}
+
+case "${1:-help}" in
+  pr)
+    shift
+    need python3
+    PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
+      exec python3 -m coderai.pr_automation "$@"
+    ;;
+  ship)
+    shift
+    need python3
+    PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.delivery.cli "$@"
+    ;;
+  prove)
+    shift
+    need python3
+    PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.evidence.cli "$@"
+    ;;
+  status)
+    shift
+    need python3
+    PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.status "$@"
+    ;;
+  find)        shift; cmd_find "$@" ;;
+  help|-h|--help|"") shift || true; if [ "$#" -gt 0 ]; then topic_help "$@"; else usage; fi ;;
+  *)           exec "$REPO_DIR/bin/coder-ai-os" "$@" ;;
+esac

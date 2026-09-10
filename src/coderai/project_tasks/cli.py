@@ -361,7 +361,7 @@ def command_repair(project: Path, args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="coder-ai-os tasks")
+    parser = argparse.ArgumentParser(prog="coder-ai tasks")
     parser.add_argument("--project", default=".", help=argparse.SUPPRESS)
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("enable")
@@ -442,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         command = globals()[f"command_{args.command.replace('-', '_')}"]
         return int(command(project, args))
     except (ProjectError, StorageError, json.JSONDecodeError, OSError, ValueError) as exc:
-        print(f"coder-ai-os tasks: {exc}", file=sys.stderr)
+        print(f"coder-ai tasks: {exc}", file=sys.stderr)
         return 3
 
 
