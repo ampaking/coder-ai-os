@@ -10,6 +10,7 @@ enabled:
   - native-orchestration
   - project-tasks
   - release-handoff
+  - pr-engineer
   - val-capture
   - val-verify
   - val-judge

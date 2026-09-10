@@ -5,7 +5,7 @@ commands:
     body: Classify the tier, then follow only the phases and artifacts AI_DEV_PROTOCOL requires for that tier. No code before its investigation gate.
   task:
     description: Run the complete isolated task lifecycle
-    body: Resume one isolated task. Load native-orchestration only for feature/epic work. Review by tier — trivial=self-review, small=one correctness pass, feature=correctness plus relevant specialist lenses, high-risk=all applicable lenses and cross-provider review. Refresh scoped atlas/diff/callers, resolve findings, revalidate, then replace CURRENT.md with a compact checkpoint. Never require coder-ai-os run or Project Tasks commands.
+    body: Resume one isolated task. Load native-orchestration only for feature/epic work. Review by tier — trivial=self-review, small=one correctness pass, feature=correctness plus relevant specialist lenses, high-risk=all applicable lenses and cross-provider review. Refresh scoped atlas/diff/callers, resolve findings, revalidate, then replace CURRENT.md with a compact checkpoint. Never require coder-ai run or Project Tasks commands.
   review:
     description: Run the review-only roles on the current diff
     body: Compare the diff with the Definition of Done. Always review correctness; add Security, Performance, or Architecture only when the changed surface carries that risk. Use all applicable lenses for high-risk work. Treat tests as bug detectors and report findings with file and line only. Do not edit.

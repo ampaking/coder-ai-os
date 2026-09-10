@@ -9,7 +9,12 @@ hooks:
     matcher: Edit|Write|MultiEdit
     command: .coder-ai/scripts/val-post-edit.py
     action: deterministically mark UI validation pending when the edited path matches VAL watchGlobs; never invoke a model or run VAL per edit
+  evidence_observation:
+    event: PostToolUse
+    matcher: Bash|Edit|Write|MultiEdit
+    command: .coder-ai/scripts/evidence-post-tool.py
+    action: record the command or edited paths and the observed outcome, so a claim can be checked against what actually ran; never invoke a model, never store output
   project_tasks_session:
     event: Stop
-    command: coder-ai-os tasks hook claude
+    command: coder-ai tasks hook claude
     action: record one content-free, project-local Project Tasks session observation
