@@ -46,7 +46,8 @@ source "$VAL_SOURCE_DIR/lib/baseline.sh"
 source "$VAL_SOURCE_DIR/lib/reload.sh"
 
 val_usage() {
-  printf '%s\n' 'usage: val run [--task <id>] [--prompt <ui-request>] | auth [--manual] | baseline promote --run <id> | stop | doctor'
+  printf '%s\n' 'usage: coder-ai val run [--task <id>] [--prompt <ui-request>] | auth [--manual] | baseline promote --run <id> | stop | doctor'
+  printf '%s\n' '       (agents use the project wrapper: ./.coder-ai/val/run ...)'
 }
 
 val_run_command() {
@@ -96,14 +97,14 @@ val_main() {
         val_require_core
         val_baseline_promote "$3"
       else
-        val_die 3 'usage: val baseline promote --run <run-id>'
+        val_die 3 'usage: coder-ai val baseline promote --run <run-id>'
       fi
       ;;
     auth)
       shift
       manual='false'
       if [ "${1:-}" = --manual ] && [ "$#" -eq 1 ]; then manual='true'
-      elif [ "$#" -ne 0 ]; then val_die 3 'usage: val auth [--manual]'; fi
+      elif [ "$#" -ne 0 ]; then val_die 3 'usage: coder-ai val auth [--manual]'; fi
       val_require_core
       val_config_load
       [ "$(val_config_get '.auth == null')" = false ] || { val_die 3 'auth is not configured'; return 3; }
