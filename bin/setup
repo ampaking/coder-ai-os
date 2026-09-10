@@ -104,7 +104,7 @@ if [ "$APPLYNOW" = y ]; then
   [ "$CODEXDEF" = y ]  && APPLY_FLAGS+=(--codex-safety-defaults)
   [ "$CODEGRAPH" = y ] && APPLY_FLAGS+=(--with-codegraph)
   echo; "$REPO_DIR/install.sh" "${APPLY_FLAGS[@]}"
-  echo; echo "✓ Done — every agent now works your way. Check it: coder-ai-os verify"
+  echo; echo "✓ Done — every agent now works your way. Check it: coder-ai verify"
 else
   echo "Saved, not applied. Apply anytime with:  ./install.sh"
 fi
