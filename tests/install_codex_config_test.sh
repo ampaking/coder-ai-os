@@ -157,7 +157,7 @@ grep -qF 'prefix_rule(pattern=["claude", "-p", "--permission-mode", "plan"], dec
 jq -e '.permissions.deny | index("Bash(codex exec *--dangerously-bypass-approvals-and-sandbox*:*)") != null' \
   "$fresh/.claude/settings.json" >/dev/null || fail 'Claude does not deny unsafe Codex bypass handoff'
 [ "$(jq -r '.permissions.defaultMode' "$fresh/.claude/settings.json")" = auto ] || fail 'fresh project did not receive Claude auto mode'
-jq -e '.permissions.deny | index("Read(**/.env.*)") != null and index("Bash(git push:*)") != null' \
+jq -e '.permissions.deny | index("Read(**/.env.*)") != null and index("Bash(git push --force:*)") != null' \
   "$fresh/.claude/settings.json" >/dev/null || fail 'fresh project lacks Claude secret/git deny rules'
 
 claude_repo="$TMP/claude-repo"
@@ -185,7 +185,10 @@ assert_count 1 '^approval_policy[[:space:]]*=[[:space:]]*"on-request"$' "$home/.
 assert_count 0 '^sandbox_mode[[:space:]]*=' "$home/.codex/config.toml"
 assert_count 1 '^default_permissions[[:space:]]*=[[:space:]]*":workspace"$' "$home/.codex/config.toml"
 [ -L "$home/.local/bin/coder-ai-os" ] || fail 'global coder-ai-os command link missing'
-[ -L "$home/.local/bin/val" ] || fail 'global VAL command link missing'
+# One CLI on PATH: the visual loop is reached through `coder-ai val` and the
+# project-local .coder-ai/val/run wrapper, not a second global binary.
+[ -L "$home/.local/bin/coder-ai" ] || fail 'coder-ai command link missing'
+[ -e "$home/.local/bin/val" ] && fail 'a second global binary was linked'
 
 owned_home="$TMP/owned-cli-home"
 mkdir -p "$owned_home/.local/bin"
@@ -229,7 +232,7 @@ if command -v jq >/dev/null 2>&1; then
   jq -e '.hooks.Stop | any(.[]; any(.hooks[]; .prompt == "user stop hook"))' \
     "$hook_repo/.claude/settings.json" >/dev/null || fail 'user Stop hook was replaced'
   jq -e '
-    .hooks.Stop | any(.[]; any(.hooks[]; .command == "coder-ai-os tasks hook claude"))
+    .hooks.Stop | any(.[]; any(.hooks[]; .command == "coder-ai tasks hook claude"))
   ' "$hook_repo/.claude/settings.json" >/dev/null || fail 'Project Tasks Stop collector was not installed'
   if jq -e '
     .hooks.Stop | any(.[]; any(.hooks[];
