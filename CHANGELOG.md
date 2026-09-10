@@ -3,6 +3,83 @@
 Notable changes to `coder-ai-os`. Dates are absolute (YYYY-MM-DD).
 ## Unreleased
 
+- **New: `coder-ai prove` — evidence, not claims.** A `PostToolUse` hook records every command the agent
+  runs and its outcome; `coder-ai prove` reads that ledger, derives what the diff *requires* (a UI file
+  demands a visual run, source demands the project's own test command), audits the acceptance list,
+  and prints one table. A claim with no evidence reads `UNVERIFIED`, an untouched acceptance item
+  reads `NOT DONE`, and evidence recorded before the last edit reads `STALE`. If the hook is not
+  installed, nothing reads as verified — it says so rather than passing quietly.
+  - **It also finds work nobody asked for but the repository implies**: the existing feature most
+    like the new one shows what a complete feature is made of here, so a new endpoint surfaces the
+    missing UI surface, its test and its `ja`/`en` strings — each citing the file that justifies it.
+  - **And it says when a change is too big to judge**, grouping work by surface so a 41 000-line
+    change becomes children that can each be proved.
+- **New: `coder-ai ship` — deliver by the project's own rules.** Projects differ; `coder-ai ship` runs the
+  steps declared in `.coder-ai/delivery.yaml`, in order, stopping at the first failure with the
+  observed output. `--dry-run` prints the exact commands and runs none. `coder-ai sync` proposes a
+  workflow from your Makefile, CI workflows or package scripts — each step citing the `file:line`
+  that justifies it — and enables nothing without an explicit yes. The contract is committed and
+  shared; whether it may run on your machine is machine-local.
+  - **The agent gains exactly one permission, `Bash(coder-ai ship:*)`** — no `git commit`, `push` or
+    `rebase` anywhere. The harness does the writing and enforces the order.
+  - **A declaration cannot widen the boundary.** A project declaring `git push --force origin main`,
+    `gh pr merge`, a deploy, or a shell pipeline gets a refusal at the loader, the matrix, or the
+    runner — never an execution.
+  - **The gate**: nothing mutating starts while a required check has no evidence. `--allow-unverified`
+    is a human override and is refused for an agent.
+- **Fixed: the visual loop was installed, hooked, and unreachable.** No permission rule existed for
+  `.coder-ai/val/run`, so every attempt hit a prompt and got skipped, and the `ui-validation.pending`
+  marker it wrote was read by nothing. The rule now ships, the marker is a first-class unverified
+  state, and `coder-ai doctor` checks the whole chain — including watch globs that match no file in the
+  repository, which is how a loop can look installed and never fire.
+- **Fixed: an agent could start its own elevated session.** `coder-ai pr` grants commit and push; it is
+  now explicitly denied to normal sessions, so elevation stays a human act.
+- **Fixed: `coder-ai pr <n> -- <provider>` crashed.** The CLI ran as `python -m …cli`, which executes the
+  module a second time as `__main__` and produced duplicate class objects, so dispatch took the
+  wrong branch. There is now a single package entry point, dispatch routes structurally, and a test
+  runs every command form through the real binary asserting no traceback.
+- **Fixed: VAL screenshots** had no explicit timeout and hit Playwright's 30-second default under
+  load, failing authentication for a reason unrelated to the application.
+
+- **`coder-ai` is the CLI.** One command for the whole harness — `coder-ai setup`, `coder-ai sync`, `coder-ai status`,
+  `coder-ai find`, `coder-ai pr`, `coder-ai val`, `coder-ai tasks`, `coder-ai verify`. `coder-ai-os` remains a working alias
+  and the project keeps its name; `coder-ai help` groups commands by intent instead of listing a header
+  comment. Previously the same product was reached through three different entry points.
+- **New `coder-ai status`** — one answer to "where am I": is this project set up, which agents are
+  configured, what was I doing (the current `.ai/memory/` checkpoint), and are any PR sessions
+  running here. `--json` for scripts.
+- **New `coder-ai find <symbol>`** — locate a symbol in the code atlas without reading files, replacing
+  the raw `rg -w '<name>' .ai/symbols/` instruction, and explaining itself when the atlas is
+  missing or stale.
+- **New: PR automation (`coder-ai pr`).** An explicitly privileged, PR-scoped autonomous engineering
+  mode. `coder-ai pr 1420 -- claude` resolves the pull request, creates an isolated worktree under
+  `~/.coder-ai/pr-worktrees/`, and watches GitHub cheaply — waking the AI only when engineering
+  judgment is needed (new review feedback, a failed required check, a new HEAD). The agent
+  understands, verifies, fixes, validates, self-reviews, commits, non-force pushes the PR's own
+  branch, replies, and exits; an idle pull request costs zero model calls, repository scans and
+  test runs. `--watch 0|30m|until-close`, `--bg`, and `coder-ai pr status|attach|stop|log`.
+  - **Normal sessions are unchanged.** A plain `claude` or `codex` session keeps the no-Git-write
+    guardrails; elevation exists only inside a live `coder-ai pr` session and disappears when it ends.
+    Enforced by a `git`/`gh` shim on the session PATH, a `pre-push` hook scoped to the automation
+    worktree (which also catches an absolute-path git and never touches your own checkout), and a
+    post-run check that only the PR head ref moved, as a fast-forward.
+  - **Findings ledger** with stable ids, so a concern is analysed once: it reads resolution exactly
+    as GitHub reports it — resolved (and by whom — a PR author closing their own thread is flagged
+    as a claim, not confirmation), re-opened, outdated, deleted, or superseded by the reviewer's
+    later approval.
+  - **New `pr-engineer` skill** carries the engineering judgment — repository-native command
+    discovery, the validation ladder, pre-existing vs new failure classification, commit boundaries
+    and messages (never `AI-Agent:`/`AI-Model:` trailers), treating an AI reviewer's comment as a
+    claim to verify, and reading indirect Japanese review feedback without mistaking politeness for
+    "optional".
+  - `config/pr_automation.yaml` configures watch windows, polling and routing. The allow/deny
+    matrix is deliberately not configurable — it is code, so neither a setting nor a repository
+    editing its own instructions can widen the boundary.
+- **README rebuilt as an index** (392 → ~240 lines): one section per feature with the command to
+  run it. The long-form detail moved to `docs/setup.md`, `docs/pr-automation.md`, `docs/val.md`,
+  and `docs/project-tasks.md`.
+- Fixed: `coder-ai-os help` printed part of its own script body after the usage text.
+
 - `coder-ai-os setup`/`sync` now re-sync the snapshot and atlas INDEX as their LAST step. Setup
   writes agent files (`AGENTS.md`, `.claude/`, `.codex/`, …) after generating the first snapshot,
   and the structural fingerprint counts untracked files — so a brand-new setup reported

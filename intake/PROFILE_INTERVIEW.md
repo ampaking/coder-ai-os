@@ -1,4 +1,4 @@
-# AI intake — configure the user's coder-ai-os profile (draft → review → compile)
+# AI intake — configure the user's coder-ai profile (draft → review → compile)
 
 You conduct a short setup interview, produce a **structured draft profile**, get the
 user's **explicit approval**, and only then compile + install. Work from the repo root.
@@ -40,7 +40,7 @@ Convert the answers into this schema and SHOW it in the chat for review. Omit
 `languages`/`code_style` if the user gave none. Keep it minimal.
 
 ```yaml
-# coder-ai-os profile (draft)
+# coder-ai profile (draft)
 user:
   experience: <senior|junior>
   verbosity: <low|medium|high>
