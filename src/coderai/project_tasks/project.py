@@ -53,11 +53,11 @@ def require_identity(project: Path) -> dict[str, Any]:
     identity_path = project / ".coder-ai" / "identity.json"
     reject_symlinks(project, identity_path)
     if not identity_path.is_file():
-        raise ProjectError("project is not set up; run: coder-ai-os setup")
+        raise ProjectError("project is not set up; run: coder-ai setup")
     identity = _load_json(identity_path)
     expected = root_hash(project)
     if identity.get("git_root_hash") != expected:
-        raise ProjectError("project identity mismatch; run coder-ai-os sync before using tasks")
+        raise ProjectError("project identity mismatch; run coder-ai sync before using tasks")
     return identity
 
 

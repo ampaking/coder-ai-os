@@ -35,7 +35,7 @@ def parse_git_log(output: str) -> list[dict[str, Any]]:
 def scan_git(project: Path, limit: int = 200) -> dict[str, int]:
     settings = load_settings(project) or {}
     if not settings.get("gitMetadata"):
-        raise StorageError("Git metadata is off; enable it with: coder-ai-os tasks config --git-metadata on")
+        raise StorageError("Git metadata is off; enable it with: coder-ai tasks config --git-metadata on")
     if not 1 <= limit <= 1000:
         raise StorageError("Git scan limit must be between 1 and 1000")
     git_env = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
@@ -101,7 +101,7 @@ def set_git_link(project: Path, task_id: str, commit_hash: str, status: str) -> 
         if connection.execute("SELECT 1 FROM tasks WHERE id=?", (task_id,)).fetchone() is None:
             raise StorageError("task not found")
         if connection.execute("SELECT 1 FROM commits WHERE hash=?", (commit_hash,)).fetchone() is None:
-            raise StorageError("commit metadata not found; run: coder-ai-os tasks git")
+            raise StorageError("commit metadata not found; run: coder-ai tasks git")
         connection.execute(
             "INSERT INTO task_commits(task_id,commit_hash,confidence,evidence_json,status,corrected) "
             "VALUES(?,?,?,?,?,1) ON CONFLICT(task_id,commit_hash) DO UPDATE SET confidence=excluded.confidence,"
