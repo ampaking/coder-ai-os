@@ -1,0 +1,34 @@
+#!/bin/sh
+# coder-ai guard — installed into the PR worktree's hooks directory.
+#
+# This runs for ANY git binary invoked in this worktree, including one called by
+# absolute path, so it catches pushes that never passed through the PATH shim.
+# stdin: <local ref> <local sha> <remote ref> <remote sha>
+set -eu
+
+CONFIG="${CODER_AI_GUARD_CONFIG:-@CONFIG@}"
+HEAD_BRANCH="@HEAD_BRANCH@"
+ZERO="0000000000000000000000000000000000000000"
+
+refuse() {
+  printf 'coder-ai guard: refused push — %s\n' "$1" >&2
+  printf '  scope: only fast-forward updates of %s are permitted\n' "$HEAD_BRANCH" >&2
+  exit 1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${remote_ref:-}" ] || continue
+  case "$remote_ref" in
+    "refs/heads/$HEAD_BRANCH") : ;;
+    *) refuse "$remote_ref is not this PR's head branch" ;;
+  esac
+  case "$local_sha" in
+    "$ZERO") refuse "deleting $remote_ref is not permitted" ;;
+  esac
+  if [ "$remote_sha" != "$ZERO" ]; then
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      refuse "this push is not a fast-forward of $remote_ref"
+    fi
+  fi
+done
+exit 0
