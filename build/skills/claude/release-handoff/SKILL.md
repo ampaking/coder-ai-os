@@ -6,8 +6,22 @@ description: Prepare a human-controlled Git and release handoff after code chang
 
 # Release handoff
 
-Turn an observed working-tree diff into a safe, human-executable next-step plan. This skill proposes;
-the human commits, pushes, opens PRs, merges, deploys, or releases.
+Turn an observed working-tree diff into a next step. Which next step depends on one question:
+
+**Does this project declare a delivery workflow?** Check `.coder-ai/delivery.yaml`.
+
+- **Yes, and `coder-ai ship status` says it is enabled here** — deliver with `coder-ai ship`. Read the
+  declaration first and follow its order; it exists because this project's steps are not the
+  generic ones. Supply the commit message with `--message` and the title with `--pr-title`; stage
+  deliberately with `git add <paths>` beforehand. If a step fails, report the observed output and
+  stop — never work around it with raw git, which is refused anyway. Run `coder-ai prove` first if you
+  want to see what the gate will check.
+- **No, or not enabled here** — propose only. Group coherent commits and emit paste-ready commands;
+  the human commits, pushes, opens PRs, merges, deploys, and releases. Offer to run `coder-ai sync`,
+  which proposes a declaration from this repository's own documentation.
+
+Either way: never merge, release, or deploy, and never add `AI-Agent:`/`AI-Model:` trailers to a
+commit message.
 
 ## Discover the repository contract
 
