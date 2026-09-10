@@ -433,7 +433,7 @@ class RunController:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="coder-ai-os run")
+    parser = argparse.ArgumentParser(prog="coder-ai run")
     parser.add_argument("task", help="the complete task objective and expected behavior")
     parser.add_argument("--project", default=".")
     parser.add_argument("--provider", choices=PROVIDERS)
@@ -448,7 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        progress = lambda message: print(f"[coder-ai-os] {message}", file=sys.stderr, flush=True)
+        progress = lambda message: print(f"[coder-ai] {message}", file=sys.stderr, flush=True)
         state = RunController(Path(args.project), timeout=args.timeout, progress=progress).execute(
             args.task, provider=args.provider, model=args.model, review_model=args.review_model,
             verify=args.verify, max_attempts=args.max_attempts,
@@ -456,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(state, indent=2, sort_keys=True))
         return 0 if state["status"] == "completed" else 2
     except (OrchestratorError, ProjectError, OSError, ValueError) as exc:
-        print(f"coder-ai-os run: {exc}", file=sys.stderr)
+        print(f"coder-ai run: {exc}", file=sys.stderr)
         return 3
 
 
