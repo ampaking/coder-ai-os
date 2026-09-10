@@ -1,0 +1,27 @@
+{
+  "_comment": "Permission rules this tool shipped in earlier releases and no longer ships. Sync removes these by exact string so abandoned command names do not accumulate in a user's settings forever. Only ever list rules WE authored \u2014 never a rule a user could plausibly have written.",
+  "allow": [
+    "Bash(caos val:*)",
+    "Bash(rig val:*)",
+    "Bash(cai val:*)",
+    "Bash(caos prove:*)",
+    "Bash(rig prove:*)",
+    "Bash(caos ship:*)",
+    "Bash(rig ship:*)"
+  ],
+  "deny": [
+    "Bash(caos pr:*)",
+    "Bash(rig pr:*)",
+    "Bash(cai pr:*)",
+    "Bash(git fetch:*)",
+    "Bash(git merge:*)",
+    "Bash(git pull:*)",
+    "Bash(git checkout:*)",
+    "Bash(git commit:*)",
+    "Bash(git push:*)",
+    "Bash(git rebase:*)",
+    "Bash(git reset:*)",
+    "Bash(coder-ai pr:*)",
+    "Bash(coder-ai-os pr:*)"
+  ]
+}
