@@ -134,7 +134,8 @@ def deep_merge(base, over):
 
 
 STEMS = ("identity", "safety", "workflow", "tokens", "user",
-         "context", "skills", "commands", "subagents", "hooks", "mcp", "memory")
+         "context", "skills", "commands", "subagents", "hooks", "mcp", "memory",
+         "pr_automation")
 
 
 def _apply_overlay(cfg, path):
@@ -142,7 +143,9 @@ def _apply_overlay(cfg, path):
     if not path or not os.path.exists(path):
         return
     over_all = load_yaml(path) or {}
+    # safety and pr_automation are boundaries, not preferences: never overridable.
     over_all.pop("safety", None)
+    over_all.pop("pr_automation", None)
     for stem, over in over_all.items():
         if stem in cfg and isinstance(cfg[stem], dict) and isinstance(over, dict):
             deep_merge(cfg[stem], over)
@@ -224,20 +227,36 @@ def render(cfg, tool):
              "Never claim success without an observed validation run. A pure question = "
              "explain first.")
     L.append("")
-    # 2c. Commit handoff — what to OUTPUT on a commit request; execution stays forbidden
-    #     by the guardrails above, so this renders the positive half of that rule.
+    # 2c. Delivery — the POSITIVE half of the git guardrail. Without this section the
+    #     agent reads only "never run git" and reports that git is entirely off-limits,
+    #     never discovering that a project can declare a workflow it is allowed to use.
+    dl = wf.get("delivery") or {}
+    if dl:
+        command = dl.get("command", "coder-ai ship")
+        declaration = dl.get("declaration", ".coder-ai/delivery.yaml")
+        L.append("## Delivery — you CAN ship")
+        L.append("Ordinary git is yours; delivery is not improvised: when `" + declaration
+                 + "` exists and is enabled here, finish with `" + command + "` — it "
+                 "branches off the base, commits, pushes only that branch, opens the PR. "
+                 + str(dl.get("rule", "")).strip().capitalize() + ". Preview with "
+                 "`--dry-run`; if none is declared, say so and use the handoff below.")
+        if dl.get("evidence"):
+            L.append("Evidence: " + str(dl["evidence"]).strip() + ".")
+        L.append("")
+    # 2d. Commit handoff — what to OUTPUT on a commit request when no workflow is
+    #     declared; execution stays forbidden, so this renders the positive half.
     ch = wf.get("commit_handoff") or {}
     if ch:
-        L.append("## Commit handoff — on request, output only (human runs git)")
-        L.append("Asked to commit: split the diff into small coherent commits, <="
-                 + str(ch.get("max_files_per_commit", 3)) +
-                 " related files per `git add`; emit paste-ready `git add <files>` + "
-                 "`git commit -m \"...\"` blocks in apply order. Message: one-line, "
+        L.append("## Commit handoff — no workflow declared")
+        L.append("Asked to commit: split the diff into `git add <files>` + `git commit -m "
+                 "\"...\"` steps in apply order, <=" + str(ch.get("max_files_per_commit", 3))
+                 + " related files each. Messages: one-line, "
                  "human-toned, Conventional prefix (fix/feat/docs/test/refactor/chore)" +
-                 ("; in monorepos add the package scope, e.g. `fix(api): ...`"
+                 ("; add the package scope in monorepos, e.g. `fix(api): ...`"
                   if ch.get("monorepo_scope") else "") +
-                 ". Never mix unrelated concerns or generated artifacts with source in "
-                 "one commit. Never execute the commands.")
+                 ". Never mix unrelated concerns or generated artifacts into one commit." +
+                 (" No AI trailer, co-author, email, or tool name in it."
+                  if ch.get("no_attribution") else ""))
         L.append("")
     # 2b. Optional profile line — rendered ONLY when languages/style are set, so it
     #     costs zero tokens by default. Experience is included only when shown.
@@ -521,11 +540,44 @@ def emit_commands(cfg):
     return len(cmds)
 
 
+def _bare(value):
+    """Values may carry a trailing comment when PyYAML is unavailable."""
+    if isinstance(value, str):
+        return value.split("#", 1)[0].strip()
+    return value
+
+
+def pr_automation_problems(cfg):
+    """PR automation's config is a boundary: reject anything that widens it."""
+    pr = cfg.get("pr_automation", {}) or {}
+    if not pr:
+        return []
+    probs = []
+    profiles = pr.get("execution_profiles", {}) or {}
+    normal, elevated = profiles.get("normal", {}) or {}, profiles.get("pr_automation", {}) or {}
+    if _bare(normal.get("git_write")) not in (False, None):
+        probs.append("pr_automation.execution_profiles.normal.git_write must stay false "
+                     "(PR automation may never elevate ordinary sessions)")
+    if _bare(elevated.get("git_write")) not in ("scoped", None):
+        probs.append("pr_automation.execution_profiles.pr_automation.git_write must be "
+                     "'scoped' (unscoped git write is not offered)")
+    for name, profile in (("normal", normal), ("pr_automation", elevated)):
+        for key in ("deploy", "secrets"):
+            if _bare(profile.get(key)) not in (False, None):
+                probs.append("pr_automation.execution_profiles.%s.%s must stay false"
+                             % (name, key))
+    if _bare((pr.get("commit", {}) or {}).get("trailers")) not in (False, None):
+        probs.append("pr_automation.commit.trailers must stay false "
+                     "(Git history carries no AI metadata)")
+    return probs
+
+
 def config_problems(cfg):
     probs = skill_problems(cfg)
     v = cfg.get("user", {}).get("verbosity")
     if str(v) not in ("low", "medium", "high"):
         probs.append("user.verbosity %r is not one of low|medium|high" % (v,))
+    probs += pr_automation_problems(cfg)
     return probs
 
 
@@ -539,7 +591,10 @@ def cmd_build(cfg):
     for fname, body in compile_all(cfg).items():
         with open(os.path.join(BUILD_DIR, fname), "w", encoding="utf-8") as f:
             f.write(body)
-        print("  compiled -> build/%s (%d bytes)" % (fname, len(body.encode("utf-8"))))
+        # Print the directory actually written: --project and --out redirect BUILD_DIR,
+        # and a hard-coded "build/" hid a compile that landed somewhere else.
+        where = os.path.relpath(os.path.join(BUILD_DIR, fname), ROOT)
+        print("  compiled -> %s (%d bytes)" % (where, len(body.encode("utf-8"))))
     n = emit_project(cfg)
     nc = emit_commands(cfg)
     ns = emit_skills(cfg)
