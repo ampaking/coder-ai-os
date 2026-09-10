@@ -11,15 +11,27 @@ native_orchestration:
   entrypoints: normal claude or codex interactive session
   controller: the user-selected parent session
   routing: capability and task risk, never provider loyalty
-  cross_provider: invoke the other installed native CLI directly, never through coder-ai-os run or MCP
+  cross_provider: invoke the other installed native CLI directly, never through coder-ai run or MCP
   review: prefer the opposite provider in read-only mode; repair and re-review until clean
   questions: block only for material human decisions; otherwise state the safe assumption and continue
 architecture_review: false
-# On an explicit commit request: output paste-ready commands only (git writes stay human-run).
+# Delivery: when a project declares a workflow and this machine enabled it, finish the
+# job through the harness. The agent never runs git writes itself.
+delivery:
+  command: coder-ai ship
+  declaration: .coder-ai/delivery.yaml
+  rule: read the declaration, follow its order, never work around a failed step
+  evidence: coder-ai prove — report its table before claiming done
+# On an explicit commit request without a declared workflow: output paste-ready commands
+# only (git writes stay human-run).
 commit_handoff:
   max_files_per_commit: 3
   message: conventional one-liner
   monorepo_scope: true
+  # Git history names the repository, never the tool that typed. `coder-ai ship`
+  # enforces this in delivery/ship.py; stating it here makes a direct `git commit`
+  # obey the same rule, now that the agent is permitted to run one.
+  no_attribution: true
 protocol_file: AI_DEV_PROTOCOL.md
 clarify:
   mode: by-exception
