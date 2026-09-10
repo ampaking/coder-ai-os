@@ -1,0 +1,7 @@
+{
+  "number": 1422, "title": "Abandoned", "body": "", "author": {"login": "nobin"},
+  "state": "CLOSED", "isDraft": false, "url": "https://github.com/org/aiila/pull/1422",
+  "headRefName": "feature/abandoned", "baseRefName": "main",
+  "headRefOid": "ccc123ccc123ccc123ccc123ccc123ccc123cccc",
+  "mergeable": "CONFLICTING", "isCrossRepository": false
+}

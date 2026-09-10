@@ -1,0 +1,14 @@
+{
+  "number": 1420,
+  "title": "Fix worker retry handling",
+  "body": "Retry handling for the worker queue.",
+  "author": {"login": "nobin"},
+  "state": "OPEN",
+  "isDraft": false,
+  "url": "https://github.com/org/aiila/pull/1420",
+  "headRefName": "feature/worker-retry",
+  "baseRefName": "main",
+  "headRefOid": "abc123abc123abc123abc123abc123abc123abcd",
+  "mergeable": "MERGEABLE",
+  "isCrossRepository": false
+}

@@ -1,0 +1,4 @@
+[
+ {"number": 1420, "title": "Fix worker retry handling", "headRefName": "feature/worker-retry", "url": "https://github.com/org/aiila/pull/1420"},
+ {"number": 1499, "title": "Retry handling take two", "headRefName": "feature/worker-retry", "url": "https://github.com/org/aiila/pull/1499"}
+]
