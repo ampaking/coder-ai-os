@@ -430,7 +430,7 @@ def serve(project: Path, port: int = 0, launch_browser: bool = True, access_toke
         raise
     url = f"http://127.0.0.1:{server.server_port}/?token={access_token}"
     print(f"Project Tasks: {url}", flush=True)
-    print("Stop with Ctrl-C or: coder-ai-os tasks close", flush=True)
+    print("Stop with Ctrl-C or: coder-ai tasks close", flush=True)
     if launch_browser:
         threading.Timer(0.2, lambda: webbrowser.open(url)).start()
     try:
