@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -141,13 +142,28 @@ class TheRealEntryPoint(unittest.TestCase):
 
 
 class Find(unittest.TestCase):
+    @contextlib.contextmanager
+    def atlas(self, *symbols: str):
+        """A project carrying a code atlas. This repo's own `.ai/` is never committed,
+        so searching the checkout only worked on a machine that had run `coder-ai sync`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            maps = Path(tmp) / ".ai" / "symbols"
+            maps.mkdir(parents=True)
+            (maps / "coderai.md").write_text(
+                "# coderai\n\n| symbol | file | line |\n|---|---|---|\n"
+                + "".join(f"| {name} | src/coderai/pr_automation/wake.py | 1 |\n"
+                          for name in symbols))
+            yield Path(tmp)
+
     def test_finds_a_symbol_in_the_atlas(self) -> None:
-        result = run("find", "_provider_command")
+        with self.atlas("_provider_command") as project:
+            result = run("find", "_provider_command", cwd=project)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("_provider_command", result.stdout)
 
     def test_a_miss_explains_itself(self) -> None:
-        result = run("find", "definitelyNotASymbolAnywhere")
+        with self.atlas("_provider_command") as project:
+            result = run("find", "definitelyNotASymbolAnywhere", cwd=project)
         self.assertEqual(result.returncode, 1)
         self.assertIn("coder-ai sync", result.stdout + result.stderr)
 

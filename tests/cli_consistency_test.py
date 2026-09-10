@@ -58,8 +58,10 @@ class OneName(unittest.TestCase):
                          "a second binary crept back onto PATH")
 
     def test_the_project_folder_and_command_share_a_name(self) -> None:
-        self.assertTrue((REPO / ".coder-ai").is_dir())
+        # `.coder-ai/` is runtime state and never committed, so a fresh clone has none.
+        # Assert on the name the installer writes, not on this checkout's dogfooding.
         self.assertTrue(CLI.is_file())
+        self.assertIn(f"$proj/.{CLI.name}/", (REPO / "install.sh").read_text())
 
     def test_the_machine_root_matches_too(self) -> None:
         from coderai.pr_automation.state import DEFAULT_HOME
