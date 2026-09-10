@@ -24,7 +24,7 @@ build/AGENTS.md (canonical) · build/CLAUDE.md · build/GEMINI.md   (adapters)
 ```
 
 Three intake paths converge on the **same** overlay, so output is deterministic:
-`bin/coder-ai-os init --interactive` (wizard) · `--ai claude|codex` (AI interview,
+`bin/coder-ai init --interactive` (wizard) · `--ai claude|codex` (AI interview,
 draft → review → compile) · `--from profile.yaml`.
 
 ## The seven engines
@@ -37,7 +37,7 @@ draft → review → compile) · `--from profile.yaml`.
 | **Context** | orient L1–L4, snapshot, index, retrieval policy + budgets | `config/context.yaml` · project `.coder-ai/scripts/update-ai-context.sh` | done |
 | **Skill** | lazy-load one skill per trigger | `config/skills.yaml` + `skills/<id>/SKILL.md` | done |
 | **Adapter** | emit per-tool files (5 tools) | `bin/compile` render/footers | done |
-| **Audit** | budget, drift, conflicts, skills, health | `coder-ai-os doctor` | done |
+| **Audit** | budget, drift, conflicts, skills, health | `coder-ai doctor` | done |
 
 Automation (`commands`/`subagents`/`hooks`), `mcp`, and `memory` engines are compiled from
 their config into repo-scoped artifacts by `--project`. See
@@ -67,7 +67,7 @@ Planned (Phase B): global → language → repository (`.ai-agent/`) → task re
 3. **Deterministic + reviewable.** One canonical schema; manual, AI, and file intake all
    produce the same overlay. The AI configures preferences only — never permissions,
    destructive ops, secret access, or architecture.
-4. **Budget-enforced.** `coder-ai-os doctor` fails when output exceeds budget or configs
+4. **Budget-enforced.** `coder-ai doctor` fails when output exceeds budget or configs
    conflict, so drift is caught before install.
 5. **Coexists with your existing setup — never clobbers.** Instruction files use marker blocks
    (your content outside them is preserved). `settings.json` is a `jq` merge that keeps your

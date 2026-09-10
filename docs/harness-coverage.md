@@ -22,7 +22,7 @@ Legend: ● done · ◐ partial · ○ missing.
 **Finding we act on:** advanced mechanisms are rare because they're *hard to configure*, not
 low-value. `coder-ai-os` compiles all of them from one kernel — the differentiator. The
 always-loaded block stays small (harness detail lives in generated artifacts, loaded on demand);
-`coder-ai-os doctor` reports budget, conflicts, skills, and per-mechanism counts.
+`coder-ai doctor` reports budget, conflicts, skills, and per-mechanism counts.
 
 ## The reconciliation (why instructions stay small)
 Two efficiency papers appear to conflict: well-designed instructions can cut runtime/tokens
