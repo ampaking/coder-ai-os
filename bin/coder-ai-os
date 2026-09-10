@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
-# coder-ai-os — one CLI over the config kernel (config/*.yaml), the compiler
-# (bin/compile), and the installer (install.sh). Manual, AI, and file intake all
-# converge on the SAME canonical overlay (config/local.yaml) → deterministic output.
+# coder-ai-os — DEPRECATED NAME. Use `coder-ai`; this forwards to the same code and
+# is kept only so existing installs and scripts keep working.
 #
-#   coder-ai-os install                   configure your agents globally (once per machine)
-#   coder-ai-os setup [dir]               set up a new project
-#   coder-ai-os sync [dir]                safely refresh every agent in an existing project
-#   coder-ai-os init                      personalize your profile (wizard, or --ai claude|codex)
-#   coder-ai-os doctor                    sizes + Codex 32KiB budget + drift + health
-#   coder-ai-os val <command>             run Visual Autonomy Loop in the current repo
-#   coder-ai-os tasks <command>           manage local project tasks and reviews
-#   coder-ai-os run "<task>"              execute, verify, review, and prove a coding task
-#   coder-ai-os verify                    what each agent CLI actually loads
-#   coder-ai-os compile / diff / profile show
+# One CLI over the config kernel (config/*.yaml), the compiler (bin/compile), and the
+# installer (install.sh). Manual, AI, and file intake all converge on the SAME
+# canonical overlay (config/local.yaml) → deterministic output.
+#
+#   (deprecated name — use `coder-ai`)
+#   coder-ai install                   configure your agents globally (once per machine)
+#   coder-ai setup [dir]               set up a new project
+#   coder-ai sync [dir]                safely refresh every agent in an existing project
+#   coder-ai init                      personalize your profile (wizard, or --ai claude|codex)
+#   coder-ai doctor                    sizes + Codex 32KiB budget + drift + health
+#   coder-ai pr <pr|branch|url> -- <provider>   supervise a Pull Request autonomously
+#   coder-ai val <command>             run Visual Autonomy Loop in the current repo
+#   coder-ai tasks <command>           manage local project tasks and reviews
+#   coder-ai run "<task>"              execute, verify, review, and prove a coding task
+#   coder-ai verify                    what each agent CLI actually loads
+#   coder-ai compile / diff / profile show
 set -euo pipefail
 # Resolve through symlinks: the CLI is invoked via ~/.local/bin/coder-ai-os (a symlink
 # into the repo), so BASH_SOURCE is the link, not the real file. Walk links to find the
@@ -26,7 +31,7 @@ done
 REPO_DIR="$(cd -P "$(dirname "$SELF")/.." >/dev/null 2>&1 && pwd)"
 LOCAL="$REPO_DIR/config/local.yaml"
 
-die(){ echo "coder-ai-os: $*" >&2; exit 1; }
+die(){ echo "coder-ai: $*" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "'$1' not found on PATH${2:+ — $2}"; }
 
 AI_PROMPT='Set up my coder-ai-os profile: read intake/PROFILE_INTERVIEW.md in this repo and follow it exactly — interview me, show a DRAFT profile, wait for my approval, then compile and install. Configure preferences only; never change safety, permissions, or architecture.'
@@ -34,8 +39,9 @@ AI_PROMPT='Set up my coder-ai-os profile: read intake/PROFILE_INTERVIEW.md in th
 init_project(){
   local start="$1" root
   root="$(git -C "$start" rev-parse --show-toplevel 2>/dev/null || true)"
-  [ -n "$root" ] || { echo "coder-ai-os: init completed (no Git project to initialize)."; return 0; }
-  "$REPO_DIR/install.sh" --project "$root" --yes
+  [ -n "$root" ] || { echo "coder-ai: init completed (no Git project to initialize)."; return 0; }
+  local quiet=(); { [ -t 0 ] && [ -t 1 ]; } || quiet=(--yes)
+  "$REPO_DIR/install.sh" --project "$root" ${quiet[@]+"${quiet[@]}"}
 }
 
 cmd_init(){
@@ -86,7 +92,7 @@ cmd_diff(){
 
 cmd_verify(){
   local strict="${1:-0}" missing=0
-  echo "coder-ai-os verify — what each agent CLI actually loads"
+  echo "coder-ai verify — what each agent CLI actually loads"
   local pair tool f
   for pair in "Claude:$HOME/.claude/CLAUDE.md" "Codex:$HOME/.codex/AGENTS.md" "Gemini:$HOME/.gemini/GEMINI.md"; do
     tool="${pair%%:*}"; f="${pair#*:}"
@@ -109,11 +115,35 @@ cmd_verify(){
            .claude/agents/performance.md .claude/agents/architecture.md \
            .codex/agents/explorer.toml .codex/agents/reviewer.toml \
            .codex/config.toml .agents/skills/debugging/SKILL.md .gemini/commands/task.toml \
-           .agents/skills/val-fix/SKILL.md .coder-ai/val/run .coder-ai/val/SETUP.md \
+           .agents/skills/val-fix/SKILL.md .agents/skills/pr-engineer/SKILL.md \
+           .claude/skills/pr-engineer/SKILL.md .coder-ai/val/run .coder-ai/val/SETUP.md \
+           .coder-ai/scripts/evidence-post-tool.py \
            .ai/standards.md .ai/PROJECT_NAVIGATOR.md \
            .ai/memory/INDEX.md .ai/memory/CURRENT.md; do
     if [ -e "$PWD/$p" ]; then echo "    ● $p"; else echo "    ○ $p"; missing=$((missing+1)); fi
   done
+  # Dropping a hook script is not the same as registering it. `coder-ai prove` reports
+  # "nothing observed" either way, so an unregistered hook has to be visible here.
+  echo "  --- delivery · evidence ---"
+  if [ -f "$PWD/.claude/settings.json" ] && command -v python3 >/dev/null 2>&1 \
+     && python3 -c "import json,sys
+d=json.load(open('$PWD/.claude/settings.json'))
+g=(h.get('command','') for e in (d.get('hooks') or {}).values() for b in e for h in (b.get('hooks') or []))
+sys.exit(0 if any('evidence-post-tool' in c for c in g) else 1)" 2>/dev/null; then
+    echo "    ● evidence hook registered in .claude/settings.json"
+  else
+    echo "    ○ evidence hook NOT registered — coder-ai prove can never verify anything"
+    echo "      run: coder-ai sync"; missing=$((missing+1))
+  fi
+  if [ -f "$PWD/.coder-ai/delivery.yaml" ]; then
+    if [ -f "$PWD/.coder-ai/local/delivery.json" ]; then
+      echo "    ● delivery workflow declared and answered for this machine"
+    else
+      echo "    ○ delivery declared but not enabled here — run: coder-ai ship enable"
+    fi
+  else
+    echo "    ○ no delivery workflow — run: coder-ai ship enable  (coder-ai sync only asks on a terminal)"
+  fi
   echo "  (Claude/Codex/Gemini read your PERSONAL block from ~ in every repo — see the top"
   echo "   section; clone-local instructions live under excluded .coder-ai/local/.)"
   [ "$strict" = 0 ] || [ "$missing" = 0 ]
@@ -128,6 +158,13 @@ cmd_doctor(){
   if [ -f .ai/PROJECT_SNAPSHOT.md ]; then
     bash "$REPO_DIR/scripts/update-ai-context.sh" --check || true
   fi
+  # Can UI changes be verified here at all? A silently broken visual loop is how
+  # unverified interface work ships.
+  if [ -d .coder-ai/val ] && command -v python3 >/dev/null 2>&1; then
+    echo "  --- visual loop ---"
+    PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -m coderai.evidence.val_link || true
+  fi
   cmd_verify 1
 }
 
@@ -135,7 +172,11 @@ cmd_setup(){  # set up the current (or given) project in place
   local dir="." rest=()
   for a in "$@"; do case "$a" in --*) rest+=("$a") ;; *) dir="$a" ;; esac; done
   local abs; abs="$(cd "$dir" 2>/dev/null && pwd)" || die "no such directory: $dir"
-  exec "$REPO_DIR/install.sh" --project "$abs" --yes ${rest[@]+"${rest[@]}"}
+  # No blanket --yes: it forced the one question setup/sync is supposed to ask (the
+  # delivery opt-in), so `coder-ai sync` could never propose a workflow. Stay
+  # non-interactive only when there is nobody at the terminal to answer.
+  local quiet=(); { [ -t 0 ] && [ -t 1 ]; } || quiet=(--yes)
+  exec "$REPO_DIR/install.sh" --project "$abs" ${quiet[@]+"${quiet[@]}"} ${rest[@]+"${rest[@]}"}
 }
 
 case "${1:-help}" in
@@ -143,6 +184,7 @@ case "${1:-help}" in
   setup)       shift; cmd_setup "$@" ;;
   sync)        shift; cmd_setup "$@" ;;
   val)         shift; if [ -x "$PWD/.coder-ai/val/run" ]; then exec "$PWD/.coder-ai/val/run" "$@"; fi; exec "$REPO_DIR/val/val" "$@" ;;
+  pr)          shift; need python3; PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.pr_automation "$@" ;;
   tasks)       shift; need python3; PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.project_tasks.cli "$@" ;;
   run)         shift; need python3; PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m coderai.orchestrator "$@" ;;
   init)        shift; cmd_init "$@" ;;
@@ -151,6 +193,6 @@ case "${1:-help}" in
   verify)      cmd_verify ;;
   diff)        cmd_diff ;;
   profile)     shift; cmd_profile "$@" ;;
-  help|-h|--help|"") sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
-  *) die "unknown command '$1' (try: coder-ai-os help)" ;;
+  help|-h|--help|"") sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$1' (try: coder-ai help)" ;;
 esac
