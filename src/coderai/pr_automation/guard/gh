@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""coder-ai guard shim for `gh` — see coderai.pr_automation.guard.shim.
+
+Installed by copying, with @PYTHONPATH@ replaced, so a copy left behind by a
+crashed session still refuses cleanly instead of failing with a traceback.
+"""
+import os
+import sys
+
+for _root in (os.environ.get("CODER_AI_GUARD_PYTHONPATH"), "@PYTHONPATH@"):
+    if _root and _root != "@" + "PYTHONPATH@" and os.path.isdir(_root):
+        sys.path.insert(0, _root)
+        break
+
+try:
+    from coderai.pr_automation.guard.shim import main
+except ImportError:
+    sys.stderr.write("coder-ai guard: no PR-automation scope in this environment; refusing\n")
+    raise SystemExit(13)
+
+raise SystemExit(main(sys.argv))
