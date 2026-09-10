@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures"))
 import pr_repo  # noqa: E402
@@ -107,6 +108,16 @@ class EndToEnd(unittest.TestCase):
         self.hub.pr["headRefOid"] = pr_repo.git(self.clone, "rev-parse",
                                                 f"origin/{HEAD_BRANCH}")
         self.hub.pr["commits"][0]["oid"] = self.hub.pr["headRefOid"]
+        self.assume_providers_installed()
+
+    def assume_providers_installed(self) -> None:
+        """A supervisor only ever runs where a provider CLI is on PATH. Without this
+        the injected runner is never reached on a machine that has none — a green
+        suite on the author's laptop and a red one in CI, for no code reason."""
+        patch = mock.patch("coderai.pr_automation.providers.installed",
+                           side_effect=lambda name: name in {"claude", "codex"})
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
